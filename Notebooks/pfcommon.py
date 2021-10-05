@@ -1,7 +1,9 @@
 
+import re
 import numpy as np
 
-__all__ = ['get_simulation_variables', 'get_simulation_time', 'get_simulation_dt', 'OU']
+__all__ = ['get_simulation_variables', 'get_simulation_time', 'get_simulation_dt',
+           'get_ID', 'get_line_bus_IDs', 'normalize', 'OU']
 
 def get_simulation_variables(res, var_name, elements=None, elements_name=None, app=None, decimation=1, full_output=False):
     if elements is None:
@@ -26,6 +28,16 @@ get_simulation_time = lambda res, decimation=1: \
     np.array([res.GetValue(i, -1)[1] for i in range(0, res.GetNumberOfRows(), decimation)])
 
 get_simulation_dt = lambda res: np.diff([res.GetValue(i, -1)[1] for i in range(2)])[0]
+
+get_ID = lambda elem: int(re.findall('\d+', elem.loc_name)[0])
+
+get_line_bus_IDs = lambda line: tuple(map(int, re.findall('\d+', line.loc_name)))
+
+def normalize(x):
+    n = x.shape[0]
+    xm = np.tile(x.mean(axis=0), [n,1])
+    xs = np.tile(x.std(axis=0), [n,1])
+    return (x - xm) / xs
 
 def OU(dt, mean, stddev, tau, N, random_state = None):
     const = 2 * stddev**2 / tau
