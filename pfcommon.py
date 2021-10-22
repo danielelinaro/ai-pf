@@ -1,10 +1,28 @@
 
 import re
+import tables
 import numpy as np
 
 __all__ = ['get_simulation_variables', 'get_simulation_time', 'get_simulation_dt',
-           'get_ID', 'get_line_bus_IDs', 'normalize', 'OU', 'run_load_flow',
-           'print_load_flow']
+           'get_ID', 'get_line_bus_IDs', 'normalize', 'OU', 'OU_2', 'run_load_flow',
+           'print_load_flow', 'correct_Vd_Vq', 'BaseParameters']
+
+
+class BaseParameters (tables.IsDescription):
+    frand    = tables.Float64Col()
+
+
+def correct_Vd_Vq(Vd, Vq, delta):
+    """
+       Vd - (MxN) array, where M is the number of samples and N the number of buses at which Vd is recorded
+       Vq - (MxN) array, where M is the number of samples and N the number of buses at which Vq is recorded
+    delta - (Mx1) array, measured in degrees
+    """
+    n = Vd.shape[1]
+    delta_ref = np.tile(delta / 180 * np.pi, [n,1]).T
+    mod = np.sqrt(Vd**2 + Vq**2)
+    angle = np.arctan2(Vq, Vd) - delta_ref
+    return mod * np.cos(angle), mod * np.sin(angle)
 
 
 def get_simulation_variables(res, var_name, elements=None, elements_name=None, app=None, decimation=1, full_output=False):
@@ -61,17 +79,17 @@ def OU(dt, mean, stddev, tau, N, random_state = None):
         ou[i] = mean + mu * (ou[i-1] - mean) + coeff * rnd[i]
     return ou
 
-# def OU(dt, alpha, mu, c, N, random_state = None):
-#     coeff = np.array([alpha * mu * dt, 1 / (1 + alpha * dt)])
-#     if random_state is not None:
-#         rnd = c * np.sqrt(dt) * random_state.normal(size=N)
-#     else:
-#         rnd = c * np.sqrt(dt) * np.random.normal(size=N)
-#     ou = np.zeros(N)
-#     ou[0] = mu
-#     for i in range(N-1):
-#         ou[i+1] = (ou[i] + coeff[0] + rnd[i]) * coeff[1]
-#     return ou
+def OU_2(dt, alpha, mu, c, N, random_state = None):
+    coeff = np.array([alpha * mu * dt, 1 / (1 + alpha * dt)])
+    if random_state is not None:
+        rnd = c * np.sqrt(dt) * random_state.normal(size=N)
+    else:
+        rnd = c * np.sqrt(dt) * np.random.normal(size=N)
+    ou = np.zeros(N)
+    ou[0] = mu
+    for i in range(N-1):
+        ou[i+1] = (ou[i] + coeff[0] + rnd[i]) * coeff[1]
+    return ou
 
 
 def run_load_flow(app, project_folder, generators, loads, buses, study_case_name, verbose=False):
