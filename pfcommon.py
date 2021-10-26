@@ -5,11 +5,28 @@ import numpy as np
 
 __all__ = ['get_simulation_variables', 'get_simulation_time', 'get_simulation_dt',
            'get_ID', 'get_line_bus_IDs', 'normalize', 'OU', 'OU_2', 'run_load_flow',
-           'print_load_flow', 'correct_Vd_Vq', 'BaseParameters']
+           'print_load_flow', 'correct_Vd_Vq', 'find_element_by_name',
+           'is_voltage', 'is_power', 'is_frequency']#, 'BaseParameters']
 
 
-class BaseParameters (tables.IsDescription):
-    frand    = tables.Float64Col()
+# class BaseParameters (tables.IsDescription):
+#     F0    = tables.Float64Col()
+#     frand = tables.Float64Col()
+
+
+is_voltage = lambda var_name: var_name in ('m:ur', 'm:ui', 'm:u')
+is_power = lambda var_name: var_name in ('m:P:bus1', 'm:Q:bus1')
+is_frequency = lambda var_name: var_name in ('m:fe', )
+
+
+def find_element_by_name(elements, name):
+    found = False
+    for elem in elements:
+        if elem.loc_name == name:
+            found = True
+            break
+    if found: return elem
+    return None
 
 
 def correct_Vd_Vq(Vd, Vq, delta):
@@ -18,8 +35,12 @@ def correct_Vd_Vq(Vd, Vq, delta):
        Vq - (MxN) array, where M is the number of samples and N the number of buses at which Vq is recorded
     delta - (Mx1) array, measured in degrees
     """
-    n = Vd.shape[1]
-    delta_ref = np.tile(delta / 180 * np.pi, [n,1]).T
+    # convert delta to radians
+    try:
+        n = Vd.shape[1]
+        delta_ref = np.tile(delta / 180 * np.pi, [n,1]).T
+    except:
+        delta_ref = delta / 180 * np.pi
     mod = np.sqrt(Vd**2 + Vq**2)
     angle = np.arctan2(Vq, Vd) - delta_ref
     return mod * np.cos(angle), mod * np.sin(angle)

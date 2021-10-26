@@ -2,6 +2,7 @@
 import os
 import sys
 import json
+import time
 import argparse as arg
 import tables
 import numpy as np
@@ -12,7 +13,6 @@ if powerfactory_path not in sys.path:
     sys.path.append(powerfactory_path)
 import powerfactory as pf
 
-#from build_data import BaseParameters, OU
 from pfcommon import *
 
 progname = os.path.basename(sys.argv[0])
@@ -135,9 +135,8 @@ if __name__ == '__main__':
     try:
         rng_seed = config['seed']
     except:
-        # TODO: fix this
-        rng_seed = 100
-
+        rs = RandomState(MT19937(SeedSequence(int(time.time()))))
+        rng_seed = rs.randint(0, 1000000)
     rnd_state = RandomState(MT19937(SeedSequence(rng_seed)))
 
     # OU parameters
