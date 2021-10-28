@@ -6,16 +6,66 @@ import numpy as np
 __all__ = ['get_simulation_variables', 'get_simulation_time', 'get_simulation_dt',
            'get_ID', 'get_line_bus_IDs', 'normalize', 'OU', 'OU_2', 'run_load_flow',
            'print_load_flow', 'correct_Vd_Vq', 'find_element_by_name',
-           'is_voltage', 'is_power', 'is_frequency']#, 'BaseParameters']
+           'is_voltage', 'is_power', 'is_frequency', 'compute_generator_inertias',
+           'BaseParameters', 'sort_objects_by_name']
 
 
-# class BaseParameters (tables.IsDescription):
-#     F0    = tables.Float64Col()
-#     frand = tables.Float64Col()
+class BaseParameters (tables.IsDescription):
+    F0    = tables.Float64Col()
+    frand = tables.Float64Col()
+
+
+def sort_objects_by_name(objects):
+    argsort = lambda lst: [i for i,_ in sorted(enumerate(lst), key=lambda x: x[1])]
+    idx = argsort([obj.loc_name for obj in objects])
+    return [objects[i] for i in idx]
+
+
+def compute_generator_inertias(target_H_area, area_ID, default_H='IEEE39', S='IEEE39', areas_map='IEEE39', F0=60, verbose=True):
+    if default_H == 'IEEE39':
+        default_H = {'G 01': 5.0, 'G 02': 4.33, 'G 03': 4.47, 'G 04': 3.57, 'G 05': 4.33, 
+                     'G 06': 4.35, 'G 07': 3.77, 'G 08': 3.47, 'G 09': 3.45, 'G 10': 4.20}
+    if S == 'IEEE39':
+        S = {'G 01': 10000.0, 'G 02': 700.0, 'G 03': 800.0, 'G 04': 800.0, 'G 05': 300.0,
+             'G 06': 800.0, 'G 07': 700.0, 'G 08': 700.0, 'G 09': 1000.0, 'G 10': 1000.0}
+    if areas_map == 'IEEE39':
+        areas_map = {
+            1: ['G 02', 'G 03', 'G 10'],
+            2: ['G 04', 'G 05', 'G 06', 'G 07'],
+            3: ['G 08', 'G 09'],
+            4: ['G 01']
+        }
+    num, den = 0,0
+    generator_names = areas_map[area_ID]
+    N_generators_in_area = len(generator_names)
+    for generator_name in generator_names:
+        num += S[generator_name] * default_H[generator_name]
+        den += S[generator_name]
+    default_H_area = num / den 
+    # default_E_area = num * 1e-3
+    # default_M_area = 2 * num * 1e-3 / F0
+
+    if verbose: print(f'default H area {area_ID} = {default_H_area:g} s')
+
+    H = default_H.copy()
+    dH = target_H_area - default_H_area
+    S_tot = np.sum([S[generator_name] for generator_name in generator_names])
+    num, den = 0,0
+    for generator_name in generator_names:
+        H[generator_name] += dH * S_tot / N_generators_in_area / S[generator_name]
+        num += S[generator_name] * H[generator_name]
+        den += S[generator_name]
+        if verbose: print(f'{generator_name}: H = {H[generator_name]:.3f} s.')
+    if np.abs(num / den - target_H_area) > 1e-9:
+        raise Exception('Cannot find a combination of generator inertias that match the requested area inertia')
+    if verbose: print(f'H area {area_ID} = {num / den:g} s') 
+    
+    return H
 
 
 is_voltage = lambda var_name: var_name in ('m:ur', 'm:ui', 'm:u')
-is_power = lambda var_name: var_name in ('m:P:bus1', 'm:Q:bus1')
+is_power = lambda var_name: var_name in ('m:P:bus1', 'm:Q:bus1', \
+                                         'm:Psum:bus1', 'm:Qsum:bus1')
 is_frequency = lambda var_name: var_name in ('m:fe', )
 
 
@@ -87,6 +137,31 @@ def normalize(x):
 
 
 def OU(dt, mean, stddev, tau, N, random_state = None):
+    """
+    OU returns a realization of the Ornstein-Uhlenbeck process given its
+    parameters.
+
+    Parameters
+    ----------
+    dt : float
+        Time step.
+    mean : float
+        Mean of the process.
+    stddev : float
+        Standard deviation of the process.
+    tau : float
+        Time constant of the autocorrelation function of the process.
+    N : integer
+        Number of samples.
+    random_state : RandomState object, optional
+        The object used to draw the random numbers. The default is None.
+
+    Returns
+    -------
+    ou : array of length N
+        A realization of the Ornstein-Uhlenbeck process with the above parameters.
+
+    """
     const = 2 * stddev**2 / tau
     mu = np.exp(-dt / tau)
     coeff = np.sqrt(const * tau / 2 * (1 - mu**2))
@@ -101,6 +176,31 @@ def OU(dt, mean, stddev, tau, N, random_state = None):
     return ou
 
 def OU_2(dt, alpha, mu, c, N, random_state = None):
+    """
+    OU_2 returns a realization of the Ornstein-Uhlenbeck process given its
+    parameters.
+
+    Parameters
+    ----------
+    dt : float
+        Time step.
+    alpha : float
+        Sets the autocorrelation time constant of the process (which is equal to 1/alpha).
+    mu : float
+        Mean of the process.
+    c : float
+        Together with alpha, sets the variance of the process (which is equal to c**2 / (2 * alpha)).
+    N : integer
+        Number of samples.
+    random_state : RandomState object, optional
+        The object used to draw the random numbers. The default is None.
+
+    Returns
+    -------
+    ou : array of length N
+        A realization of the Ornstein-Uhlenbeck process with the above parameters.
+
+    """
     coeff = np.array([alpha * mu * dt, 1 / (1 + alpha * dt)])
     if random_state is not None:
         rnd = c * np.sqrt(dt) * random_state.normal(size=N)

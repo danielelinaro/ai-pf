@@ -1,0 +1,175 @@
+{
+    "project_name": "\\Terna_Inerzia\\39 Bus New England System w/ Stoch. Load",
+    "study_case_name": "5. Transient Stability",
+    "generator_IDs": [
+        "G 01",
+        "G 02",
+        "G 03",
+        "G 04",
+        "G 05",
+        "G 06",
+        "G 07",
+        "G 08",
+        "G 09",
+        "G 10"
+    ],
+    "inertia": {
+        "G 01": [
+            5.0
+        ],
+        "G 02": [
+            4.33
+        ],
+        "G 03": [
+            4.47
+        ],
+        "G 04": [
+            3.57
+        ],
+        "G 05": [
+            4.33
+        ],
+        "G 06": [
+            4.35
+        ],
+        "G 07": [
+            3.77
+        ],
+        "G 08": [
+            3.47
+        ],
+        "G 09": [
+            3.45
+        ],
+        "G 10": [
+            4.2
+        ]
+    },
+    "inertia_mode": "sequential",
+    "random_load_name": "Load 03",
+    "OU": {
+        "alpha": 0.5,
+        "mu": 0.0,
+        "c": 0.5
+    },
+    "dur": 300.0,
+    "Ntrials": 100,
+    "frand": 200.0,
+    "decimation": 20,
+    "correct_Vd_Vq": true,
+    "use_physical_units": true,
+    "vars_map": {
+        "time": "time",
+        "generators": [
+            {
+                "name": "G 01",
+                "vars_in": [
+                    "c:fi"
+                ],
+                "vars_out": [
+                    "delta_ref"
+                ]
+            }
+        ],
+        "buses": [
+            {
+                "name": "Bus 03",
+                "vars_in": [
+                    "m:fe",
+                    "m:ur",
+                    "m:ui"
+                ],
+                "vars_out": [
+                    "omegael_bus3",
+                    "Vd_bus3",
+                    "Vq_bus3"
+                ]
+            },
+            {
+                "name": "Bus 14",
+                "vars_in": [
+                    "m:fe",
+                    "m:ur",
+                    "m:ui"
+                ],
+                "vars_out": [
+                    "omegael_bus14",
+                    "Vd_bus14",
+                    "Vq_bus14"
+                ]
+            },
+            {
+                "name": "Bus 17",
+                "vars_in": [
+                    "m:fe",
+                    "m:ur",
+                    "m:ui"
+                ],
+                "vars_out": [
+                    "omegael_bus17",
+                    "Vd_bus17",
+                    "Vq_bus17"
+                ]
+            },
+            {
+                "name": "Bus 39",
+                "vars_in": [
+                    "m:fe",
+                    "m:ur",
+                    "m:ui"
+                ],
+                "vars_out": [
+                    "omegael_bus39",
+                    "Vd_bus39",
+                    "Vq_bus39"
+                ]
+            }
+        ],
+        "lines": [
+            {
+                "name": "Line 03 - 04",
+                "vars_in": [
+                    "m:P:bus1",
+                    "m:Q:bus1"
+                ],
+                "vars_out": [
+                    "Pe_bus3",
+                    "Qe_bus3"
+                ]
+            },
+            {
+                "name": "Line 14 - 15",
+                "vars_in": [
+                    "m:P:bus1",
+                    "m:Q:bus1"
+                ],
+                "vars_out": [
+                    "Pe_bus14",
+                    "Qe_bus14"
+                ]
+            },
+            {
+                "name": "Line 16 - 17",
+                "vars_in": [
+                    "m:P:bus1",
+                    "m:Q:bus1"
+                ],
+                "vars_out": [
+                    "Pe_bus17",
+                    "Qe_bus17"
+                ]
+            },
+            {
+                "name": "Line 01 - 39",
+                "vars_in": [
+                    "m:P:bus1",
+                    "m:Q:bus1"
+                ],
+                "vars_out": [
+                    "Pe_bus39",
+                    "Qe_bus39"
+                ]
+            }
+        ]
+    }
+}

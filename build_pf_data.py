@@ -19,6 +19,7 @@ from pfcommon import *
 
 progname = os.path.basename(sys.argv[0])
 
+
 if __name__ == '__main__':
 
     parser = arg.ArgumentParser(description = 'Build data for inertia estimation with deep neural networks', \
@@ -29,16 +30,19 @@ if __name__ == '__main__':
     parser.add_argument('-n', '--n-trials',  default=None,  type=int, help='number of trials')
     parser.add_argument('-s', '--suffix',  default='',  type=str, help='suffix to add to the output files')
     parser.add_argument('-o', '--output-dir',  default=None,  type=str, help='output directory')
+    parser.add_argument('-v', '--verbose', action='store_true', help='be verbose')
     args = parser.parse_args(args=sys.argv[1:])
+    
+    verbose = args.verbose
     
     app = pf.GetApplication()
     if app is None:
         raise Exception('Cannot get PowerFactory application')
-    print('Successfully obtained PowerFactory application.')
+    if verbose: print('Successfully obtained PowerFactory application.')
 
     config_file = args.config_file
     if not os.path.isfile(config_file):
-        print('{}: {}: no such file.'.format(config_file))
+        print(f'{progname}: {config_file}: no such file.')
         sys.exit(1)
     config = json.load(open(config_file, 'r'))
     
@@ -46,16 +50,18 @@ if __name__ == '__main__':
     err = app.ActivateProject(project_name)
     if err:
         raise Exception(f'Cannot activate project {project_name}')
-    print(f'Successfully activated project {project_name}.')
+    print(f'Successfully activated project "{project_name}".')
     
     grid = app.GetCalcRelevantObjects('*.ElmNet')[0]
     nominal_frequency = grid.frnom
-    generators = app.GetCalcRelevantObjects('*.ElmSym')
+    generators = sort_objects_by_name(app.GetCalcRelevantObjects('*.ElmSym'))
+    lines = sort_objects_by_name(app.GetCalcRelevantObjects('*.ElmLne'))
+    buses = sort_objects_by_name(app.GetCalcRelevantObjects('*.ElmTerm'))
+    loads = sort_objects_by_name(app.GetCalcRelevantObjects('*.ElmLod'))
     generator_IDs = [gen.loc_name for gen in generators]
-    generator_IDs.sort()
-    lines = app.GetCalcRelevantObjects('*.ElmLne')
-    buses = app.GetCalcRelevantObjects('*.ElmTerm')
-    loads = app.GetCalcRelevantObjects('*.ElmLod')
+    bus_IDs = [bus.loc_name for bus in buses]
+    line_IDs = [line.loc_name for line in lines]
+    load_IDs = [load.loc_name for load in loads]
     N_generators, N_lines, N_buses, N_loads = len(generators), len(lines), len(buses), len(loads)
     print(f'The nominal frequency of the system is {nominal_frequency:g} Hz.')
     print(f'There are {N_generators} generators.')
@@ -64,15 +70,19 @@ if __name__ == '__main__':
     print(f'There are {N_loads} loads.')
 
     Vrating = {'buses': {}, 'lines': {}}
+    Prating = {'loads': {'P': {}, 'Q': {}}}
     for bus in buses:
         Vrating['buses'][bus.loc_name] = bus.uknom
     for line in lines:
         Vrating['lines'][line.loc_name] = line.typ_id.uline
+    for load in loads:
+        Prating['loads']['P'][load.loc_name] = load.plini
+        Prating['loads']['Q'][load.loc_name] = load.qlini
 
     study_project_folder = app.GetProjectFolder('study')
     if study_project_folder is None:
         raise Exception('No folder named "study" present')
-    print('Successfully obtained folder "study".')
+    if verbose: print('Successfully obtained folder "study".')
 
     ### activate the study case corresponding to the transient analysis
     study_case_name = config['study_case_name']
@@ -80,7 +90,7 @@ if __name__ == '__main__':
     err = study_case.Activate() # don't know why this returns 1
     # if err:
     #     raise Exception(f'Cannot activate study case {study_case_name')
-    print(f'Successfully activated study case {study_case_name}.')
+    print(f'Successfully activated study case "{study_case_name}".')
     
     ### tell PowerFactory which variables should be saved to its internal file
     elements_map = {'generators': '*.ElmSym', 'loads': '*.ElmLod',
@@ -122,7 +132,7 @@ if __name__ == '__main__':
         if composite_model.loc_name == composite_model_name:
             stochastic_load_model = composite_model
             found = True
-            print(f'Found composite model named {composite_model_name}.')
+            if verbose: print(f'Found composite model named {composite_model_name}.')
             break
     if not found:
         raise Exception(f'Cannot find composite model named {composite_model_name}')
@@ -130,7 +140,7 @@ if __name__ == '__main__':
     for slot,net_element in zip(stochastic_load_model.pblk, stochastic_load_model.pelm):
         if slot.loc_name == 'load slot':
             net_element = stochastic_load
-            print(f'Set {stochastic_load_name} as stochastic load.')
+            if verbose: print(f'Set {stochastic_load_name} as stochastic load.')
     
     stochastic_load_filename = app.GetCalcRelevantObjects('*.ElmFile')[0].f_name
     print(f'The stochastic load file is {stochastic_load_filename}.')
@@ -150,10 +160,6 @@ if __name__ == '__main__':
         decimation = config['decimation']
     except:
         decimation = 1
-
-    # generator IDs
-    generator_IDs = config['generator_IDs']
-    N_generators = len(generator_IDs)
 
     # inertia values
     try:
@@ -207,11 +213,6 @@ if __name__ == '__main__':
     t = dt + np.r_[0 : tstop + dt/2 : dt]
     N_samples = t.size
 
-    mem_vars_map = config['vars_map']
-    mem_vars = list(mem_vars_map.keys())
-    time_mem_var = mem_vars[['time' in mem_var for mem_var in mem_vars].index(True)]
-    time_disk_var = mem_vars_map[time_mem_var]
-
     if args.output_dir is None:
         output_dir = time.strftime('%Y%m%d-%H%M%S', time.localtime())
     else:
@@ -235,22 +236,27 @@ if __name__ == '__main__':
     compression_filter = tables.Filters(complib='zlib', complevel=5)
     atom = tables.Float64Atom()
 
-    class Parameters (tables.IsDescription):
+    class Parameters (BaseParameters):
         hw_seeds       = tables.Int64Col(shape=(N_random_loads,))
         seeds          = tables.Int64Col(shape=(N_random_loads,N_trials))
         count          = tables.Int64Col()
-        frand          = tables.Float64Col()
-        F0             = tables.Float64Col()
         decimation     = tables.Int64Col()
-        generator_IDs  = tables.StringCol(8, shape=(N_generators,))
-        rnd_load_names = tables.StringCol(8, shape=(N_random_loads,))
+        generator_IDs  = tables.StringCol(32, shape=(N_generators,))
+        bus_IDs        = tables.StringCol(32, shape=(N_buses,))
+        line_IDs       = tables.StringCol(32, shape=(N_lines,))
+        load_IDs       = tables.StringCol(32, shape=(N_loads,))
+        V_rating_buses = tables.Float64Col(shape=(N_buses,))
+        V_rating_lines = tables.Float64Col(shape=(N_lines,))
+        P_rating_loads = tables.Float64Col(shape=(N_loads,))
+        Q_rating_loads = tables.Float64Col(shape=(N_loads,))
+        rnd_load_names = tables.StringCol(32, shape=(N_random_loads,))
         rng_seeds      = tables.Int64Col(shape=(N_random_loads,))
         inertia        = tables.Float64Col(shape=(N_generators,))
         alpha          = tables.Float64Col(shape=(N_random_loads,))
         mu             = tables.Float64Col(shape=(N_random_loads,))
         c              = tables.Float64Col(shape=(N_random_loads,))
 
-    generator_types = {gen.loc_name: gen.GetAttribute('typ_id') for gen in generators}
+    generator_types = {gen.loc_name: gen.typ_id for gen in generators}
 
     # the time series describing the stochastic load: tPQ[:,1] is set inside
     # the for loops
@@ -270,10 +276,20 @@ if __name__ == '__main__':
 
         out_file = ''
         # change generators' inertia values
+        msg = 'Setting inertia of generator "{}" to {:5.3f} s.'
+        msg_len = len(msg) - 9 + 5 + np.max([len(gen.loc_name) for gen in generators])
+        banner = ' Inertia Value {:02d}/{:02d} '
+        banner_len = len(banner) - 8
+        symbol = '='
+        symbols_len = (msg_len - banner_len) // 2
+        if symbols_len * 2 + banner_len < msg_len:
+            banner = symbol + banner
+            banner_len += 1
+        print(symbol * symbols_len + banner.format(i+1, N_inertia) + symbol * symbols_len)
         for generator in generators:
             name = generator.loc_name
             generator_types[name].h = inertia_values[name][i]
-            print(f'Setting inertia of generator "{name}" to {inertia_values[name][i]:g} s.')
+            print(msg.format(name, inertia_values[name][i]))
             out_file += f'_{inertia_values[name][i]:.3f}'
         out_file = '{}/inertia{}{}.h5'.format(output_dir, out_file, suffix)
 
@@ -295,6 +311,13 @@ if __name__ == '__main__':
         params['decimation']     = decimation
         params['rnd_load_names'] = [stochastic_load_name]
         params['generator_IDs']  = config['generator_IDs']
+        params['bus_IDs']        = bus_IDs
+        params['line_IDs']       = line_IDs
+        params['load_IDs']       = load_IDs
+        params['V_rating_buses'] = [Vrating['buses'][ID] for ID in bus_IDs]
+        params['V_rating_lines'] = [Vrating['lines'][ID] for ID in line_IDs]
+        params['P_rating_loads'] = [Prating['loads']['P'][ID] for ID in load_IDs]
+        params['Q_rating_loads'] = [Prating['loads']['Q'][ID] for ID in load_IDs]
         params['inertia']        = [inertia_values[gen_id][i] for gen_id in generator_IDs]
         params.append()
         tbl.flush()
@@ -322,7 +345,7 @@ if __name__ == '__main__':
                         vars_out = delta_ref_entry['vars_out']
                         delta_ref_var_out = vars_out[vars_in.index('c:fi')]
                         correct_voltages = True
-                        print(f'{delta_ref_entry["name"]} is the reference generator.')
+                        if verbose: print(f'{delta_ref_entry["name"]} is the reference generator.')
                         break
             except:
                 pass
@@ -330,6 +353,10 @@ if __name__ == '__main__':
                 print('Cannot correct Vd and Vq because no generator delta is specified as reference.')
             
         for j in range(N_trials):
+
+            if not verbose:
+                sys.stdout.write('{}'.format((j+1)%10))
+                sys.stdout.flush()
 
             # generate the dynamics of the stochastic load and save it to file
             rs = RandomState(MT19937(SeedSequence(seeds[0][i,j])))
@@ -350,20 +377,22 @@ if __name__ == '__main__':
             err = inc.Execute()
             if err:
                 raise Exception('Cannot compute initial condition')
-            print('Successfully computed initial condition.')
+            if verbose: print('Successfully computed initial condition.')
         
             ### run the transient simulation
             sim = app.GetFromStudyCase('ComSim')
 
-            sys.stdout.write(f'Running simulation until t = {tstop} s... ')
-            sys.stdout.flush()
+            if verbose:
+                sys.stdout.write(f'Running simulation until t = {tstop} s... ')
+                sys.stdout.flush()
             sim.tstop = tstop
             err = sim.Execute()
             if err:
                 fid.close()
-                os.remove(output_file)
+                os.remove(out_file)
                 raise Exception('Error while running transient simulation')
-            sys.stdout.write('done.\n')
+            if verbose:
+                sys.stdout.write('done.\n')
     
             res.Load()
 
@@ -393,7 +422,7 @@ if __name__ == '__main__':
                             Vq = get_simulation_variables(res, 'm:ui',
                                                           elements=[bus],
                                                           decimation=decimation)
-                            Vd,Vq = correct_Vd_Vq(Vd, Vq, delta_ref)
+                            Vd, Vq = correct_Vd_Vq(Vd, Vq, delta_ref)
                             if config['use_physical_units']:
                                 Vd *= Vrating['buses'][bus_entry['name']]
                                 Vq *= Vrating['buses'][bus_entry['name']]
@@ -422,8 +451,9 @@ if __name__ == '__main__':
                                 var_in in ('m:ur','m:ui')):
                             # we have already saved these variables
                             continue
-                        sys.stdout.write(f'Reading {var_in} from {req["name"]}... ')
-                        sys.stdout.flush()
+                        if verbose:
+                            sys.stdout.write(f'Reading {var_in} from {req["name"]}... ')
+                            sys.stdout.flush()
                         x = get_simulation_variables(res, var_in, elements=[elem], decimation=decimation)
                         if config['use_physical_units']:
                             if is_voltage(var_in):
@@ -431,7 +461,13 @@ if __name__ == '__main__':
                             elif is_frequency(var_in):
                                 x *= nominal_frequency
                         fid.root[var_out].append(x[np.newaxis,:])
-                        sys.stdout.write('done.\n')
+                        if verbose: sys.stdout.write('done.\n')
 
             fid.close()
+
+            if not verbose and (j+1) % 50 == 0:
+                sys.stdout.write('\n')
+                
+        if not verbose and (j+1) % 50 != 0:
+            sys.stdout.write('\n')
 

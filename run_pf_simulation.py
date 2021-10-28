@@ -13,7 +13,7 @@ if powerfactory_path not in sys.path:
     sys.path.append(powerfactory_path)
 import powerfactory as pf
 
-from pfcommon import *
+from pfcommon import * # sort_objects_by_name, OU_2, BaseParameters, get_simulation_time
 
 progname = os.path.basename(sys.argv[0])
 
@@ -43,17 +43,31 @@ if __name__ == '__main__':
         raise Exception(f'Cannot activate project {project_name}')
     print(f'Successfully activated project {project_name}.')
     
-    generators = app.GetCalcRelevantObjects('*.ElmSym')
+    grid = app.GetCalcRelevantObjects('*.ElmNet')[0]
+    nominal_frequency = grid.frnom
+    generators = sort_objects_by_name(app.GetCalcRelevantObjects('*.ElmSym'))
+    lines = sort_objects_by_name(app.GetCalcRelevantObjects('*.ElmLne'))
+    buses = sort_objects_by_name(app.GetCalcRelevantObjects('*.ElmTerm'))
+    loads = sort_objects_by_name(app.GetCalcRelevantObjects('*.ElmLod'))
     generator_IDs = [gen.loc_name for gen in generators]
-    generator_IDs.sort()
-    lines = app.GetCalcRelevantObjects('*.ElmLne')
-    buses = app.GetCalcRelevantObjects('*.ElmTerm')
-    loads = app.GetCalcRelevantObjects('*.ElmLod')
+    bus_IDs = [bus.loc_name for bus in buses]
+    line_IDs = [line.loc_name for line in lines]
+    load_IDs = [load.loc_name for load in loads]
     N_generators, N_lines, N_buses, N_loads = len(generators), len(lines), len(buses), len(loads)
     print(f'There are {N_generators} generators.')
     print(f'There are {N_lines} lines.')
     print(f'There are {N_buses} buses.')
     print(f'There are {N_loads} loads.')
+
+    Vrating = {'buses': {}, 'lines': {}}
+    Prating = {'loads': {'P': {}, 'Q': {}}}
+    for bus in buses:
+        Vrating['buses'][bus.loc_name] = bus.uknom
+    for line in lines:
+        Vrating['lines'][line.loc_name] = line.typ_id.uline
+    for load in loads:
+        Prating['loads']['P'][load.loc_name] = load.plini
+        Prating['loads']['Q'][load.loc_name] = load.qlini
 
     study_project_folder = app.GetProjectFolder('study')
     if study_project_folder is None:
@@ -170,10 +184,16 @@ if __name__ == '__main__':
 
     N_random_loads = 1
 
-    class Parameters (tables.IsDescription):
-        frand          = tables.Float64Col()
-        generator_IDs  = tables.StringCol(8, shape=(N_generators,))
-        rnd_load_names = tables.StringCol(8, shape=(N_random_loads,))
+    class Parameters (BaseParameters):
+        generator_IDs  = tables.StringCol(32, shape=(N_generators,))
+        bus_IDs        = tables.StringCol(32, shape=(N_buses,))
+        line_IDs       = tables.StringCol(32, shape=(N_lines,))
+        load_IDs       = tables.StringCol(32, shape=(N_loads,))
+        V_rating_buses = tables.Float64Col(shape=(N_buses,))
+        V_rating_lines = tables.Float64Col(shape=(N_lines,))
+        P_rating_loads = tables.Float64Col(shape=(N_loads,))
+        Q_rating_loads = tables.Float64Col(shape=(N_loads,))
+        rnd_load_names = tables.StringCol(32, shape=(N_random_loads,))
         rng_seeds      = tables.Int64Col(shape=(N_random_loads,))
         inertia        = tables.Float64Col(shape=(N_generators,N_blocks))
         alpha          = tables.Float64Col(shape=(N_random_loads,))
@@ -208,8 +228,16 @@ if __name__ == '__main__':
     params['mu']             = [mu]
     params['c']              = [c]
     params['frand']          = frand
+    params['F0']             = nominal_frequency
     params['inertia']        = inertia_values
     params['generator_IDs']  = generator_IDs
+    params['bus_IDs']        = bus_IDs
+    params['line_IDs']       = line_IDs
+    params['load_IDs']       = load_IDs
+    params['V_rating_buses'] = [Vrating['buses'][ID] for ID in bus_IDs]
+    params['V_rating_lines'] = [Vrating['lines'][ID] for ID in line_IDs]
+    params['P_rating_loads'] = [Prating['loads']['P'][ID] for ID in load_IDs]
+    params['Q_rating_loads'] = [Prating['loads']['Q'][ID] for ID in load_IDs]
     params['rnd_load_names'] = [stochastic_load_name]
     params.append()
     tbl.flush()
@@ -254,12 +282,33 @@ if __name__ == '__main__':
 
     res.Load()
 
-    ### save the simulation data to file    
+    ### save the simulation data to file
+    vars_map = config['vars_map']
     sys.stdout.write('Reading time... ')
     sys.stdout.flush()
     time = get_simulation_time(res, decimation=decimation)
-    fid.create_array(fid.root, config['vars_map']['time'], time, atom=atom)
+    fid.create_array(fid.root, vars_map['time'], time, atom=atom)
     sys.stdout.write('done.\n')
+
+    correct_voltages = False
+    if 'correct_Vd_Vq' in config and config['correct_Vd_Vq']:
+        try:
+            for delta_ref_entry in vars_map['generators']:
+                vars_in = delta_ref_entry['vars_in']
+                if 'c:fi' in vars_in:
+                    elem = find_element_by_name(generators, delta_ref_entry['name'])
+                    delta_ref = get_simulation_variables(res, 'c:fi', [elem],
+                                                         decimation=decimation)
+                    vars_out = delta_ref_entry['vars_out']
+                    delta_ref_var_out = vars_out[vars_in.index('c:fi')]
+                    fid.create_array(fid.root, delta_ref_var_out, delta_ref, atom=atom)
+                    correct_voltages = True
+                    print(f'{delta_ref_entry["name"]} is the reference generator.')
+                    break
+        except:
+            pass
+        if not correct_voltages:
+            print('Cannot correct Vd and Vq because no generator delta is specified as reference.')
 
     elements_map = {'generators': generators, 'buses': buses, 'loads': loads, 'lines': lines}
     for key in config['vars_map']:
@@ -273,6 +322,7 @@ if __name__ == '__main__':
         
         for req in config['vars_map'][key]:
             found = False
+            Vd, Vq = None, None
             for elem in elements:
                 if elem.loc_name == req['name']:
                     found = True
@@ -281,10 +331,33 @@ if __name__ == '__main__':
                 print(f'Cannot find an element named {req["name"]} among the elements of type "{key}".')
                 continue
             for var_in,var_out in zip(req['vars_in'], req['vars_out']):
+                if correct_voltages and var_in == 'c:fi' and req['name'] == delta_ref_entry['name']:
+                    continue
                 sys.stdout.write(f'Reading {var_in} from {req["name"]}... ')
                 sys.stdout.flush()
                 x = get_simulation_variables(res, var_in, elements=[elem], decimation=decimation)
-                fid.create_array(fid.root, var_out, x, atom=atom)
+                if correct_voltages and var_in in ('m:ur', 'm:ui'):
+                    if var_in == 'm:ur':
+                        Vd = x
+                        Vd_var_out = var_out
+                    elif var_in == 'm:ui':
+                        Vq = x
+                        Vq_var_out = var_out
+                    if Vd is not None and Vq is not None:
+                        Vd, Vq = correct_Vd_Vq(Vd, Vq, delta_ref)
+                        if config['use_physical_units']:
+                            Vd *= Vrating[key][req['name']]
+                            Vq *= Vrating[key][req['name']]
+                        fid.create_array(fid.root, Vd_var_out, Vd, atom=atom)
+                        fid.create_array(fid.root, Vq_var_out, Vq, atom=atom)
+                        Vd, Vq = None, None
+                else:
+                    if config['use_physical_units']:
+                        if is_voltage(var_in):
+                            x *= Vrating[key][req['name']]
+                        elif is_frequency(var_in):
+                            x *= nominal_frequency
+                    fid.create_array(fid.root, var_out, x, atom=atom)
                 sys.stdout.write('done.\n')
 
     fid.close()

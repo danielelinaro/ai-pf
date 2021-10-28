@@ -14,16 +14,17 @@
     	"G 10": [4.2]
     },
     "random_load_name": "Load 03",
-    "seed": 100,
     "OU": {
     	"alpha": 0.5,
     	"mu": 0.0,
-    	"c": 0.5
+    	"c": 1
     },
     "save_OU": true,
-    "frand": 100.0,
-    "decimation": 10,
-    "tstop": [7200],
+    "frand": 200.0,
+    "decimation": 20,
+    "correct_Vd_Vq": true,
+    "use_physical_units": true,
+    "tstop": [600],
     "vars_map" : {
     	"time": "time",
     	"generators": [
@@ -49,6 +50,10 @@
 	        {"name": "Line 01 - 39", "vars_in": ["m:P:bus1", "m:Q:bus1"],
         	 "vars_out": ["Pe_bus39", "Qe_bus39"]}
 
+    	],
+    	"loads": [
+        	{"name": "Load 03", "vars_in": ["m:Psum:bus1", "m:Qsum:bus1"],
+        	 "vars_out": ["P_load3", "Q_load3"]}
     	]
 	}
 }
