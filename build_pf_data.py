@@ -293,48 +293,78 @@ if __name__ == '__main__':
             out_file += f'_{inertia_values[name][i]:.3f}'
         out_file = '{}/inertia{}{}.h5'.format(output_dir, out_file, suffix)
 
+        goto_next_iter = False
+        completed_trials = 0
         if os.path.isfile(out_file):
+            fid = tables.open_file(out_file, 'r')
+            try:
+                params = fid.root.parameters.read()
+                # make sure that the simulation is indeed the same
+                if params['alpha'][0][0] != alpha or \
+                    params['mu'][0][0] != mu or \
+                    params['c'][0][0] != c or \
+                    params['frand'][0] != frand or \
+                    params['decimation'][0] != decimation or \
+                    params['rnd_load_names'][0][0].decode('utf-8') != stochastic_load_name:
+                        goto_next_iter = True
+                else:
+                    hw_seeds = params['hw_seeds']
+                    # here we are assuming that there is ONLY ONE stochastic load
+                    seeds = [np.tile(np.squeeze(params['seeds']), [i+1,1])]
+                    for child in fid.root:
+                        if len(child.shape) > 1:
+                            completed_trials = child.shape[0]
+                            break
+                    if completed_trials == N_trials:
+                        goto_next_iter = True
+            except:
+                goto_next_iter = True
+
+            fid.close()
+
+        if goto_next_iter:
             continue
+        
+        if completed_trials == 0:
+            ### write to file all the data and parameters that we already have
+            fid = tables.open_file(out_file, 'w', filters=compression_filter)
+            tbl = fid.create_table(fid.root, 'parameters', Parameters, 'parameters')
+            params = tbl.row
+            params['hw_seeds']       = hw_seeds
+            params['seeds']          = np.array([s[i,:] for s in seeds])
+            params['count']          = i
+            params['alpha']          = alpha
+            params['mu']             = mu
+            params['c']              = c
+            params['frand']          = frand
+            params['F0']             = nominal_frequency
+            params['decimation']     = decimation
+            params['rnd_load_names'] = [stochastic_load_name]
+            params['generator_IDs']  = config['generator_IDs']
+            params['bus_IDs']        = bus_IDs
+            params['line_IDs']       = line_IDs
+            params['load_IDs']       = load_IDs
+            params['V_rating_buses'] = [Vrating['buses'][ID] for ID in bus_IDs]
+            params['V_rating_lines'] = [Vrating['lines'][ID] for ID in line_IDs]
+            params['P_rating_loads'] = [Prating['loads']['P'][ID] for ID in load_IDs]
+            params['Q_rating_loads'] = [Prating['loads']['Q'][ID] for ID in load_IDs]
+            params['inertia']        = [inertia_values[gen_id][i] for gen_id in generator_IDs]
+            params.append()
+            tbl.flush()
 
-        ### write to file all the data and parameters that we already have
-        fid = tables.open_file(out_file, 'w', filters=compression_filter)
-        tbl = fid.create_table(fid.root, 'parameters', Parameters, 'parameters')
-        params = tbl.row
-        params['hw_seeds']       = hw_seeds
-        params['seeds']          = np.array([s[i,:] for s in seeds])
-        params['count']          = i
-        params['alpha']          = alpha
-        params['mu']             = mu
-        params['c']              = c
-        params['frand']          = frand
-        params['F0']             = nominal_frequency
-        params['decimation']     = decimation
-        params['rnd_load_names'] = [stochastic_load_name]
-        params['generator_IDs']  = config['generator_IDs']
-        params['bus_IDs']        = bus_IDs
-        params['line_IDs']       = line_IDs
-        params['load_IDs']       = load_IDs
-        params['V_rating_buses'] = [Vrating['buses'][ID] for ID in bus_IDs]
-        params['V_rating_lines'] = [Vrating['lines'][ID] for ID in line_IDs]
-        params['P_rating_loads'] = [Prating['loads']['P'][ID] for ID in load_IDs]
-        params['Q_rating_loads'] = [Prating['loads']['Q'][ID] for ID in load_IDs]
-        params['inertia']        = [inertia_values[gen_id][i] for gen_id in generator_IDs]
-        params.append()
-        tbl.flush()
-
-        for key in vars_map:
-            if key == 'time':
-                continue
-            if key not in elements_map:
-                raise Exception(f'Unknown element name "{key}"')
-            for req in vars_map[key]:
-                for var_out in req['vars_out']:
-                    fid.create_earray(fid.root, var_out, atom,
-                                      (0, N_samples_decimated))
-        for bus in random_load_buses:
-            fid.create_earray(fid.root, f'noise_bus_{bus}', atom, (0, N_samples_decimated))
-        # close the file so that other programs can read it
-        fid.close()
+            for key in vars_map:
+                if key == 'time':
+                    continue
+                if key not in elements_map:
+                    raise Exception(f'Unknown element name "{key}"')
+                for req in vars_map[key]:
+                    for var_out in req['vars_out']:
+                        fid.create_earray(fid.root, var_out, atom,
+                                          (0, N_samples_decimated))
+            for bus in random_load_buses:
+                fid.create_earray(fid.root, f'noise_bus_{bus}', atom, (0, N_samples_decimated))
+            # close the file so that other programs can read it
+            fid.close()
 
         correct_voltages = False
         if 'correct_Vd_Vq' in config and config['correct_Vd_Vq']:
@@ -352,7 +382,13 @@ if __name__ == '__main__':
             if not correct_voltages:
                 print('Cannot correct Vd and Vq because no generator delta is specified as reference.')
             
-        for j in range(N_trials):
+        if not verbose:
+            for j in range(completed_trials):
+                sys.stdout.write('{}'.format((j+1)%10))
+                if (j+1) % 50 == 0:
+                    sys.stdout.write('\n')
+
+        for j in range(completed_trials, N_trials):
 
             if not verbose:
                 sys.stdout.write('{}'.format((j+1)%10))
