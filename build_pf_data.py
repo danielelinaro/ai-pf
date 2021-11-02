@@ -308,18 +308,20 @@ if __name__ == '__main__':
                     params['rnd_load_names'][0][0].decode('utf-8') != stochastic_load_name:
                         goto_next_iter = True
                 else:
-                    hw_seeds = params['hw_seeds']
-                    # here we are assuming that there is ONLY ONE stochastic load
-                    seeds = [np.tile(np.squeeze(params['seeds']), [i+1,1])]
                     for child in fid.root:
                         if len(child.shape) > 1:
                             completed_trials = child.shape[0]
                             break
                     if completed_trials == N_trials:
                         goto_next_iter = True
+                    else:
+                        # forget about this...
+                        #hw_seeds = [s for s in params['hw_seeds'][0]]
+                        # ... these are the only seeds that matter
+                        for j in range(N_random_loads):
+                            seeds[j][i,:] = params['seeds'][0][j,:]
             except:
                 goto_next_iter = True
-
             fid.close()
 
         if goto_next_iter:
@@ -340,7 +342,7 @@ if __name__ == '__main__':
             params['F0']             = nominal_frequency
             params['decimation']     = decimation
             params['rnd_load_names'] = [stochastic_load_name]
-            params['generator_IDs']  = config['generator_IDs']
+            params['generator_IDs']  = generator_IDs
             params['bus_IDs']        = bus_IDs
             params['line_IDs']       = line_IDs
             params['load_IDs']       = load_IDs

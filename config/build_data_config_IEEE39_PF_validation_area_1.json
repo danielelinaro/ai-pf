@@ -1,8 +1,6 @@
 {
     "project_name": "\\Terna_Inerzia\\39 Bus New England System w/ Stoch. Load",
     "study_case_name": "5. Transient Stability",
-    "generator_IDs": ["G 01", "G 02", "G 03", "G 04", "G 05",
-                      "G 06", "G 07", "G 08", "G 09", "G 10"],
     "inertia": {
     	"G 01": [5.0],
     	"G 02": [2.993, 3.350, 3.708, 4.065, 4.422, 4.779, 5.136, 5.493, 5.850, 6.208],
