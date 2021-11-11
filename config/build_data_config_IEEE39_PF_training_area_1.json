@@ -1,5 +1,5 @@
 {
-    "project_name": "\\Terna_Inerzia\\39 Bus New England System w/ Stoch. Load",
+    "project_name": "\\Terna_Inerzia\\IEEE39_rnd_load",
     "study_case_name": "5. Transient Stability",
     "inertia": {
     	"G 01": [5.0],

@@ -1,31 +1,32 @@
 {
-    "project_name": "\\Terna_Inerzia\\IEEE39_rnd_load",
+    "project_name": "\\Terna_Inerzia\\IEEE39_rnd_load_compensator",
     "study_case_name": "5. Transient Stability",
     "inertia": {
     	"G 01": [5.0],
-    	"G 02": [2.993, 3.350, 3.708, 4.065, 4.422, 4.779, 5.136, 5.493, 5.850, 6.208],
-    	"G 03": [3.300, 3.613, 3.925, 4.238, 4.550, 4.863, 5.175, 5.488, 5.800, 6.113],
+    	"G 02": [4.33],
+    	"G 03": [4.47],
     	"G 04": [3.57],
     	"G 05": [4.33],
     	"G 06": [4.35],
     	"G 07": [3.77],
     	"G 08": [3.47],
     	"G 09": [3.45],
-    	"G 10": [3.264, 3.514, 3.764, 4.014, 4.264, 4.514, 4.764, 5.014, 5.264, 5.514]
+    	"G 10": [4.2],
+    	"Comp 01": [0.1]
     },
-    "inertia_mode": "sequential",
     "random_load_name": "Load 03",
+    "compensator_name": "Comp 01",
     "OU": {
     	"alpha": 0.5,
     	"mu": 0.0,
     	"c": 0.5
     },
-    "dur": 300.0,
-    "Ntrials": 100,
+    "save_OU": true,
     "frand": 200.0,
     "decimation": 20,
     "correct_Vd_Vq": true,
     "use_physical_units": true,
+    "tstop": [1800.0],
     "vars_map" : {
     	"time": "time",
     	"generators": [

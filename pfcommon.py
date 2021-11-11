@@ -30,9 +30,9 @@ def compute_generator_inertias(target_H_area, area_ID, default_H='IEEE39', S='IE
              'G 06': 800.0, 'G 07': 700.0, 'G 08': 700.0, 'G 09': 1000.0, 'G 10': 1000.0}
     if areas_map == 'IEEE39':
         areas_map = {
-            1: ['G 02', 'G 03', 'G 10'],
+            1: ['G 02', 'G 03'],
             2: ['G 04', 'G 05', 'G 06', 'G 07'],
-            3: ['G 08', 'G 09'],
+            3: ['G 08', 'G 09', 'G 10'],
             4: ['G 01']
         }
     num, den = 0,0
@@ -271,21 +271,24 @@ def run_load_flow(app, project_folder, generators, loads, buses, study_case_name
 
 def print_load_flow(results):
     print('\n===== Generators =====')
-    for name,data in results['generators'].items():
+    for name in sorted(list(results['generators'].keys())):
+        data = results['generators'][name]
         if name not in ('Ptot','Qtot'):
             print(f'{name}: P = {data["P"]:7.2f} MW, Q = {data["Q"]:6.2f} MVAR, ' + 
                   f'I = {data["I"]:6.3f} kA, V = {data["V"]:6.3f} kV.')
     print(f'Total P = {results["generators"]["Ptot"]*1e-3:5.2f} GW, total Q = {results["generators"]["Qtot"]*1e-3:5.2f} GVAR')
 
     print('\n======= Loads ========')
-    for name,data in results['loads'].items():
+    for name in sorted(list(results['loads'].keys())):
+        data = results['loads'][name]
         if name not in ('Ptot','Qtot'):
             print(f'{name}: P = {data["P"]:7.2f} MW, Q = {data["Q"]:6.2f} MVAR, ' + 
                   f'I = {data["I"]:6.3f} kA, V = {data["V"]:8.3f} kV.')
     print(f'Total P = {results["loads"]["Ptot"]*1e-3:5.2f} GW, total Q = {results["loads"]["Qtot"]*1e-3:5.2f} GVAR')
     
     print('\n======= Buses ========')
-    for name,data in results['buses'].items():
+    for name in sorted(list(results['buses'].keys())):
+        data = results['buses'][name]
         print(f'{name}: voltage = {data["voltage"]:5.3f} pu, V = {data["Vl"]:7.3f} kV, ' + \
               f'Pflow = {data["P"]["flow"]:7.2f} MW, Qflow = {data["Q"]["flow"]:7.2f} MVA.')
 

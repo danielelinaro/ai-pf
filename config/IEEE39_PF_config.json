@@ -1,5 +1,5 @@
 {
-    "project_name": "\\Terna_Inerzia\\39 Bus New England System w/ Stoch. Load",
+    "project_name": "\\Terna_Inerzia\\IEEE39_rnd_load",
     "study_case_name": "5. Transient Stability",
     "inertia": {
     	"G 01": [5.0],
@@ -17,14 +17,14 @@
     "OU": {
     	"alpha": 0.5,
     	"mu": 0.0,
-    	"c": 1
+    	"c": 0.5
     },
     "save_OU": true,
     "frand": 200.0,
     "decimation": 20,
     "correct_Vd_Vq": true,
     "use_physical_units": true,
-    "tstop": [600],
+    "tstop": [300.0],
     "vars_map" : {
     	"time": "time",
     	"generators": [
@@ -50,10 +50,6 @@
 	        {"name": "Line 01 - 39", "vars_in": ["m:P:bus1", "m:Q:bus1"],
         	 "vars_out": ["Pe_bus39", "Qe_bus39"]}
 
-    	],
-    	"loads": [
-        	{"name": "Load 03", "vars_in": ["m:Psum:bus1", "m:Qsum:bus1"],
-        	 "vars_out": ["P_load3", "Q_load3"]}
     	]
 	}
 }
