@@ -250,12 +250,15 @@ def run_sim(config_file, output_file=None, output_dir='.', output_file_prefix=''
 
     N_random_loads = 1
 
+    generator_types = {gen.loc_name: gen.GetAttribute('typ_id') for gen in generators}
+
     fid = tables.open_file(output_file, file_open_mode,
                            filters=tables.Filters(complib='zlib', complevel=5))
     
     if 'parameters' not in fid.root:
         class Parameters (BaseParameters):
             generator_IDs  = tables.StringCol(32, shape=(N_generators,))
+            S_nominal      = tables.Float64Col(shape=(N_generators,))
             bus_IDs        = tables.StringCol(32, shape=(N_buses,))
             line_IDs       = tables.StringCol(32, shape=(N_lines,))
             load_IDs       = tables.StringCol(32, shape=(N_loads,))
@@ -280,6 +283,7 @@ def run_sim(config_file, output_file=None, output_dir='.', output_file_prefix=''
         params['F0']             = nominal_frequency
         params['inertia']        = inertia_values
         params['generator_IDs']  = generator_IDs
+        params['S_nominal']      = [generator_types[ID].sgn for ID in generator_IDs]
         params['bus_IDs']        = bus_IDs
         params['line_IDs']       = line_IDs
         params['load_IDs']       = load_IDs
@@ -309,12 +313,13 @@ def run_sim(config_file, output_file=None, output_dir='.', output_file_prefix=''
     inc.dtgrd = dt * 1e3
     err = inc.Execute()
     if err:
+        fid.close()
+        os.remove(output_file)
         raise Exception('Cannot compute initial condition')
     elif verbose: print('Successfully computed initial condition.')
 
     ### run the transient simulation
     sim = app.GetFromStudyCase('ComSim')
-    generator_types = {gen.loc_name: gen.GetAttribute('typ_id') for gen in generators}
     
     for i, tstop in enumerate(config['tstop']):
 
@@ -323,6 +328,15 @@ def run_sim(config_file, output_file=None, output_dir='.', output_file_prefix=''
             j = generator_IDs.index(name)
             generator_types[name].h = inertia_values[j,i]
             if verbose: print(f'Setting inertia of generator {name} to {inertia_values[j,i]:g} s.')
+        # CHECK that the inertia values are set correctly
+        for generator in generators:
+            name = generator.loc_name
+            j = generator_IDs.index(name)
+            if np.abs(generator_types[name].h - inertia_values[j,i]) > 1e-6:
+                fid.close()
+                os.remove(output_file)
+                raise Exception(f'Mismatched value of inertia for generator {generator.loc_name}')
+        if verbose: print('All inertia values are correctly set.')
 
         if verbose:
             sys.stdout.write(f'Running simulation until t = {tstop} s... ')
@@ -454,7 +468,8 @@ if __name__ == '__main__':
     try:
         run_sim(config_file, output_file, output_dir, args.prefix, args.suffix,
                 args.append, args.force, args.verbose)
-    except FileExistsError:
+    except FileExistsError as err:
+        output_file = os.path.basename(str(err).split(':')[0])
         print('{}: {}: file exists: use -a to append or -f to overwrite.'.format(progname, output_file))
         sys.exit(2)
 
