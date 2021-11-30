@@ -4,8 +4,8 @@
     "inertia": {
     	"G 01": [5.0],
     	"G 02": [4.33],
-    	"G 03a": [4.47],
-    	"G 03b": [4.47],
+    	"G 03a": [2.58625],
+    	"G 03b": [2.58625],
     	"G 04": [3.57],
     	"G 05": [4.33],
     	"G 06": [4.35],
@@ -15,7 +15,6 @@
     	"G 10": [4.2]
     },
     "random_load_name": "Load 03",
-    "compensator_name": "G 03b",
     "OU": {
     	"alpha": 0.5,
     	"mu": 0.0,
@@ -27,11 +26,17 @@
     "decimation": 20,
     "correct_Vd_Vq": true,
     "use_physical_units": true,
-    "tstop": [600.0],
+    "tstop": [7200.0],
     "vars_map" : {
     	"time": "time",
     	"generators": [
-        	{"name": "G 01", "vars_in": ["c:fi"], "vars_out": ["delta_ref"]}
+        	{"name": "G 01", "vars_in": ["c:fi"], "vars_out": ["delta_ref"]},
+        	{"name": "G 02", "vars_in": ["m:P:bus1", "m:Q:bus1"],
+			"vars_out": ["Pe_G02", "Qe_G02"]},
+        	{"name": "G 03a", "vars_in": ["m:P:bus1", "m:Q:bus1"],
+			"vars_out": ["Pe_G03a", "Qe_G03a"]},
+        	{"name": "G 03b", "vars_in": ["m:P:bus1", "m:Q:bus1"],
+			"vars_out": ["Pe_G03b", "Qe_G03b"]}
     	],
     	"buses": [
         	{"name": "Bus 03", "vars_in": ["m:fe", "m:ur", "m:ui"],
@@ -41,17 +46,27 @@
         	{"name": "Bus 17", "vars_in": ["m:fe", "m:ur", "m:ui"],
         	 "vars_out": ["omegael_bus17", "Vd_bus17", "Vq_bus17"]},
         	{"name": "Bus 39", "vars_in": ["m:fe", "m:ur", "m:ui"],
-         	 "vars_out": ["omegael_bus39", "Vd_bus39", "Vq_bus39"]}
+         	 "vars_out": ["omegael_bus39", "Vd_bus39", "Vq_bus39"]},
+        	{"name": "Bus 10", "vars_in": ["m:fe", "m:ur", "m:ui"],
+        	 "vars_out": ["omegael_bus10", "Vd_bus10", "Vq_bus10"]},
+        	{"name": "Bus 32", "vars_in": ["m:fe", "m:ur", "m:ui"],
+         	 "vars_out": ["omegael_bus32", "Vd_bus32", "Vq_bus32"]},
+        	{"name": "Bus 40", "vars_in": ["m:fe", "m:ur", "m:ui"],
+         	 "vars_out": ["omegael_bus40", "Vd_bus40", "Vq_bus40"]}
     	],
     	"lines": [
-        	{"name": "Line 03 - 04", "vars_in": ["m:P:bus1", "m:Q:bus1"],
-        	 "vars_out": ["Pe_bus3", "Qe_bus3"]},
-        	{"name": "Line 14 - 15", "vars_in": ["m:P:bus1", "m:Q:bus1"],
-        	 "vars_out": ["Pe_bus14", "Qe_bus14"]},
-        	{"name": "Line 16 - 17", "vars_in": ["m:P:bus1", "m:Q:bus1"],
-        	 "vars_out": ["Pe_bus17", "Qe_bus17"]},
-	        {"name": "Line 01 - 39", "vars_in": ["m:P:bus1", "m:Q:bus1"],
-        	 "vars_out": ["Pe_bus39", "Qe_bus39"]}
+        	{"name": "Line 03 - 04", "vars_in": ["m:P:bus1", "m:Q:bus1", "m:I:bus1"],
+        	 "vars_out": ["Pe_line_3_4", "Qe_line_3_4", "I_line_3_4"]},
+        	{"name": "Line 14 - 15", "vars_in": ["m:P:bus1", "m:Q:bus1", "m:I:bus1"],
+        	 "vars_out": ["Pe_line_14_15", "Qe_line_14_15", "I_line_14_15"]},
+        	{"name": "Line 16 - 17", "vars_in": ["m:P:bus1", "m:Q:bus1", "m:I:bus1"],
+        	 "vars_out": ["Pe_line_16_17", "Qe_line_16_17", "I_line_16_17"]},
+	        {"name": "Line 01 - 39", "vars_in": ["m:P:bus1", "m:Q:bus1", "m:I:bus1"],
+        	 "vars_out": ["Pe_line_1_39", "Qe_line_1_39", "I_line_1_39"]},
+	        {"name": "Line 10 - 11", "vars_in": ["m:P:bus1", "m:Q:bus1", "m:I:bus1"],
+        	 "vars_out": ["Pe_line_10_11", "Qe_line_10_11", "I_line_10_11"]},
+	        {"name": "Line 10 - 13", "vars_in": ["m:P:bus1", "m:Q:bus1", "m:I:bus1"],
+        	 "vars_out": ["Pe_line_10_13", "Qe_line_10_13", "I_line_10_13"]}
 
     	]
 	}

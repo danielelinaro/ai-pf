@@ -3,17 +3,228 @@ import re
 import tables
 import numpy as np
 
-__all__ = ['get_simulation_variables', 'get_simulation_time', 'get_simulation_dt',
+__all__ = ['BaseParameters', 'AutomaticVoltageRegulator', 'TurbineGovernor', 'PowerLoad',
+           'PowerGenerator', 'PowerPlant', 'PowerBus', 'PowerTransformer', 'PowerLine',
+           'get_simulation_variables', 'get_simulation_time', 'get_simulation_dt',
            'get_ID', 'get_line_bus_IDs', 'normalize', 'OU', 'OU_2', 'run_load_flow',
            'print_load_flow', 'correct_Vd_Vq', 'find_element_by_name',
            'is_voltage', 'is_power', 'is_frequency', 'compute_generator_inertias',
-           'BaseParameters', 'sort_objects_by_name']
+           'sort_objects_by_name']
 
 
 class BaseParameters (tables.IsDescription):
     F0    = tables.Float64Col()
     frand = tables.Float64Col()
 
+
+def _bus_name_to_terminal_name(bus):
+    return 'bus{}'.format(int(re.findall('\d+', bus)[0]))
+
+def _read_element_parameters(element, par_names=None, type_par_names=None, bus_names=['bus1']):
+    data = {'name': element.loc_name}
+    if bus_names is not None and len(bus_names) > 0:
+        data['terminals'] = [element.GetAttribute(bus_name).cterm.loc_name
+                             for bus_name in bus_names]
+    if par_names is not None:
+        for k,v in par_names.items():
+            data[v] = element.GetAttribute(k)
+    if type_par_names is not None:
+        for k,v in type_par_names.items():
+            data[v] = element.typ_id.GetAttribute(k)
+    return data
+
+class AutomaticVoltageRegulator (object):
+    def __init__(self, avr, type_id=2, vrating=16.5e3, ae=0.0006, be=0.9):
+        par_names = {'Ka': 'ka', 'Ta': 'ta', 'Kf': 'kf',
+                     'Tf': 'tf', 'Ke': 'ke', 'Te': 'te',
+                     'Tr': 'tr', 'Vrmin': 'vmin', 'Vrmax': 'vmax'}
+        data = _read_element_parameters(avr, par_names, bus_names=None)
+        for k,v in data.items():
+            self.__setattr__(k, v)
+        if self.tr == 0:
+            self.tr = 1e-3
+        self.type_id = type_id
+        self.vrating = vrating
+        self.ae, self.be = ae, be
+
+    @property
+    def fmt(self):
+        return self.name.replace(' ', '') + ' {} {} poweravr ' + \
+            'vrating={} type={} vmax={} vmin={} \\\n\t\t'.format(self.vrating, self.type_id, self.vmax, self.vmin) + \
+            'ka={} ta={} kf={} tf={} ke={} te={} tr={} ae={} be={}'.format(self.ka, self.ta, self.kf, self.tf,
+                                                                          self.ke, self.te, self.tr, self.ae, self.be)
+
+
+class TurbineGovernor (object):
+    def __init__(self, gov, type_id=1, omegaref=1, t3=0.0):
+        par_names = {'Pmin': 'pmin', 'Pmax': 'pmax',
+                     'K': 'r',
+                     'T1': 'ts', # governor time constant
+                     'T3': 'tc', # servo time constant
+                     'T4': 't4', 'T5': 't5'}
+        data = _read_element_parameters(gov, par_names, bus_names=None)
+        for k,v in data.items():
+            self.__setattr__(k, v)
+        self.type_id = type_id
+        self.omegaref = 1
+        self.t3 = t3
+
+    @property
+    def fmt(self):
+        return self.name.replace(' ', '') + ' {} {} powertg ' + \
+            'type={} omegaref={} r={} pmax={} pmin={} \\\n\t\t'.format(self.type_id, self.omegaref,
+                                                                       self.r, self.pmax, self.pmin) + \
+            'ts={} tc={} t3={} t4={} t5={} '.format(self.ts, self.tc, self.t3, self.t4, self.t5) + \
+            'gen="{}"'
+
+class PowerGenerator (object):
+    def __init__(self, generator, type_id=4):
+        par_names = {'pgini': 'pg', 'usetp': 'vg', 'Pmax_uc': 'pmax', 'Pmin_uc': 'pmin',
+                'q_min': 'qmin', 'q_max': 'qmax', 'ngnum': 'num', 'ip_ctrl': 'ref_gen'}
+        type_par_names = {'sgn': 'prating', 'ugn': 'vrating', 'cosn': 'cosn', 'h': 'h',
+                     'xl': 'xl', 'xd': 'xd', 'xq': 'xq',
+                     'xrl': 'xrl', 'xrlq': 'xrlq', 'tds0': 'td0p', 'tqs0': 'tq0p',
+                     'xds': 'xdp', 'xqs': 'xqp', 'tdss0': 'td0s', 'tqss0': 'tq0s',
+                     'xdss': 'xds', 'xqss': 'xqs', 'dpe': 'd', 'iturbo': 'rotor_type'}
+        data = _read_element_parameters(generator, par_names, type_par_names)
+        for k,v in data.items():
+            self.__setattr__(k, v)
+        if self.rotor_type == 0: # salient pole
+            self.xqp = 0
+            self.tq0p = 0
+        if self.ref_gen:
+            print(f'{self.name} is the slack generator.')
+        self.type_id = type_id
+        self.bus_id = int(re.findall('\d+', self.terminals[0])[0])
+        self.pg /= self.prating
+        self.pmax /= self.prating
+        self.pmin /= self.prating
+        self.prating *= self.num * 1e6
+        self.vrating *= 1e3
+
+    @property
+    def fmt(self):
+        s = '{} {} '.format(self.name.replace(' ', ''), \
+            _bus_name_to_terminal_name(self.terminals[0])) + \
+            '{} {} ' + 'omega{} powergenerator type={} qlimits=no phtype=1 \\\n\t\t' \
+            .format(self.bus_id, self.type_id)
+        if self.ref_gen:
+            s += 'slack=yes '
+        else:
+            s += f'pg={self.pg:g} '
+        s += 'vg={:g} prating={:.6e} vrating={:.6e} \\\n\t\t' \
+            .format(self.vg, self.prating, self.vrating) + \
+            'qmax={:g} qmin={:g} pmax={:g} pmin={:g} \\\n\t\t' \
+            .format(self.qmax, self.qmin, self.pmax, self.pmin) + \
+            'xdp={:g} xqp={:g} xd={:g} xq={:g} \\\n\t\t' \
+            .format(self.xdp, self.xqp, self.xd, self.xq) + \
+            'td0p={:g} tq0p={:g} xl={:g} h={:g} d={:g}' \
+            .format(self.td0p, self.tq0p, self.xl, self.h, self.d)
+        return s
+    
+    def __str__(self):
+        return self.fmt.format('gnd', 'gnd')
+
+
+class PowerPlant (object):
+    def __init__(self, power_plant):
+        self.name = power_plant.loc_name
+        slots = power_plant.pblk
+        elements = power_plant.pelm
+        for slot,element in zip(slots, elements):
+            if element is not None:
+                if 'sym' in slot.loc_name.lower():
+                    self.gen = PowerGenerator(element)
+                elif 'avr' in slot.loc_name.lower():
+                    self.avr = AutomaticVoltageRegulator(element)
+                elif 'gov' in slot.loc_name.lower():
+                    self.gov = TurbineGovernor(element)
+        self.avr.vrating = self.gen.vrating
+                    
+    def __str__(self):
+        bus_id = self.gen.bus_id
+        gen_str = self.gen.fmt.format(f'avr{bus_id}', f'pm{bus_id}')
+        gen_name = self.gen.name.replace(' ', '')
+        avr_str = self.avr.fmt.format(f'bus{bus_id}', f'avr{bus_id}')
+        gov_str = self.gov.fmt.format(f'pm{bus_id}', f'omega{bus_id}', gen_name)
+        return avr_str + '\n\n' + gov_str + '\n\n' + gen_str
+
+
+class PowerLoad (object):
+    def __init__(self, load):
+        data = _read_element_parameters(load, {'plini': 'pc', 'qlini': 'qc'})
+        for k,v in data.items():
+            self.__setattr__(k,v)
+        self.vrating = load.bus1.cterm.uknom * 1e3
+        self.pc *= 1e6
+        self.qc *= 1e6
+            
+    def __str__(self):
+        return '{} {:5s} powerload utype=1 pc={:.6e} qc={:.6e} vrating={:.6e}' \
+                .format(self.name.replace(' ', ''),
+                        _bus_name_to_terminal_name(self.terminals[0]),
+                        self.pc, self.qc, self.vrating)
+
+class PowerLine (object):
+    def __init__(self, line):
+        par_names = {'dline': 'length', 'nlnum': 'num'}
+        type_par_names = {'uline': 'vrating', 'rline': 'r', 'xline': 'x', 'bline': 'b'}
+        bus_names = ['bus1', 'bus2']
+        data = _read_element_parameters(line, par_names, type_par_names, bus_names)
+        for k,v in data.items():
+            self.__setattr__(k, v)
+        if self.num > 1:
+            print(f'Line {self.name} has {self.num} parallel lines.')
+        self.r *= self.length
+        self.x *= self.length
+        self.b *= self.length * 1e-6
+        self.vrating *= 1e3
+
+    def __str__(self):
+        return '{} {:5s} {:5s} powerline utype=1 r={:.6e} x={:.6e} b={:.6e} vrating={:.6e}' \
+                .format(self.name.replace(' ', '').replace('-',''),
+                       _bus_name_to_terminal_name(self.terminals[0]),
+                       _bus_name_to_terminal_name(self.terminals[1]),
+                       self.r, self.x, self.b, self.vrating)
+
+class PowerTransformer (object):
+    def __init__(self, transformer):
+        par_names = {'ntnum': 'num'}
+        type_par_names = {'r1pu': 'r', 'x1pu': 'x', 'strn': 'prating',
+                  'utrn_h': 'vh', 'utrn_l': 'vl'}
+        bus_names = ['buslv', 'bushv']
+        data = _read_element_parameters(transformer, par_names, type_par_names, bus_names)
+        for k,v in data.items():
+            self.__setattr__(k, v)
+        if self.num > 1:
+            print(f'Transformer {self.name} has {self.num} parallel transformers.')
+        self.kt = self.vh / self.vl
+        self.prating *= self.num * 1e6
+        self.vrating = data['vl'] * 1e3
+
+    def __str__(self):
+        return ('{} {:5s} {:5s} powertransformer r={:.6e} x={:.6e} ' +
+                'kt={:.6e} prating={:.6e} vrating={:.6e}') \
+                .format(self.name.replace(' ', '').replace('-',''),
+                       _bus_name_to_terminal_name(self.terminals[0]),
+                       _bus_name_to_terminal_name(self.terminals[1]),
+                       self.r, self.x, self.kt,
+                       self.prating, self.vrating)
+    
+class PowerBus (object):
+    def __init__(self, bus):
+        data = _read_element_parameters(bus, {'uknom': 'vb'}, bus_names=None)
+        for k,v in data.items():
+            self.__setattr__(k, v)
+        self.vb *= 1e3
+        self.v0 = bus.GetAttribute('m:u')
+        self.theta0 = bus.GetAttribute('m:phiu')
+        self.terminal = _bus_name_to_terminal_name(self.name)
+
+    def __str__(self):
+        return '{} {:5s} powerbus vb={:.6e} v0={:.6e} theta0={:.6e}' \
+                .format(self.name.replace(' ', ''),
+                        self.terminal, self.vb, self.v0, self.theta0)
 
 def sort_objects_by_name(objects):
     argsort = lambda lst: [i for i,_ in sorted(enumerate(lst), key=lambda x: x[1])]
@@ -213,7 +424,8 @@ def OU_2(dt, alpha, mu, c, N, random_state = None):
     return ou
 
 
-def run_load_flow(app, project_folder, generators, loads, buses, study_case_name, verbose=False):
+def run_load_flow(app, project_folder, study_case_name, generators, loads, buses,
+                  lines, transformers=None, verbose=False):
     study_case = project_folder.GetContents(study_case_name)[0]
     study_case.Activate()
     if verbose: print(f'Successfully activated study case {study_case_name}.')
@@ -222,7 +434,7 @@ def run_load_flow(app, project_folder, generators, loads, buses, study_case_name
     if err:
         raise Exception('Cannot run load flow')
     if verbose: print('Successfully run load flow.')
-    results = {key: {} for key in ('generators','buses','loads')}
+    results = {key: {} for key in ('generators', 'buses', 'loads', 'lines')}
     
     Ptot, Qtot = 0, 0
     for gen in generators:
@@ -265,6 +477,38 @@ def run_load_flow(app, project_folder, generators, loads, buses, study_case_name
             'P': {power_type: bus.GetAttribute(f'm:P{power_type}') for power_type in power_types},
             'Q': {power_type: bus.GetAttribute(f'm:Q{power_type}') for power_type in power_types}
         }
+        
+    Ptot = {'bus1': 0, 'bus2': 0}
+    Qtot = {'bus1': 0, 'bus2': 0}
+    for line in lines:
+        P1 = line.GetAttribute('m:Psum:bus1')
+        Q1 = line.GetAttribute('m:Qsum:bus1')
+        P2 = line.GetAttribute('m:Psum:bus2')
+        Q2 = line.GetAttribute('m:Qsum:bus2')
+        Ptot['bus1'] += P1
+        Qtot['bus1'] += Q1
+        Ptot['bus2'] += P2
+        Qtot['bus2'] += Q2
+        results['lines'][line.loc_name] = {
+            'P_bus1': P1, 'Q_bus1': Q1,
+            'P_bus1': P2, 'Q_bus2': Q2,
+        }
+    results['lines']['Ptot'] = Ptot
+    results['lines']['Qtot'] = Qtot
+
+    if transformers is not None:
+        results['transformers'] = {}
+        results['transformers']['Ptot'] = {'bushv': 0, 'buslv': 0}
+        results['transformers']['Qtot'] = {'bushv': 0, 'buslv': 0}
+        Ptot = {'bushv': 0, 'buslv': 0}
+        Qtot = {'bushv': 0, 'buslv': 0}
+        for trans in transformers:
+            results['transformers'][trans.loc_name] = {}
+            for pq in 'PQ':
+                for hl in 'hl':
+                    val = trans.GetAttribute(f'm:{pq}sum:bus{hl}v')
+                    results['transformers'][trans.loc_name][f'{pq}_bus{hl}v'] = val
+                    results['transformers'][f'{pq}tot'][f'bus{hl}v'] += val
 
     return results
 
@@ -276,7 +520,7 @@ def print_load_flow(results):
         if name not in ('Ptot','Qtot'):
             print(f'{name}: P = {data["P"]:7.2f} MW, Q = {data["Q"]:6.2f} MVAR, ' + 
                   f'I = {data["I"]:6.3f} kA, V = {data["V"]:6.3f} kV.')
-    print(f'Total P = {results["generators"]["Ptot"]*1e-3:5.2f} GW, total Q = {results["generators"]["Qtot"]*1e-3:5.2f} GVAR')
+    print(f'Total P = {results["generators"]["Ptot"]*1e-3:7.4f} GW, total Q = {results["generators"]["Qtot"]*1e-3:7.4f} GVAR')
 
     print('\n======= Loads ========')
     for name in sorted(list(results['loads'].keys())):
@@ -284,7 +528,7 @@ def print_load_flow(results):
         if name not in ('Ptot','Qtot'):
             print(f'{name}: P = {data["P"]:7.2f} MW, Q = {data["Q"]:6.2f} MVAR, ' + 
                   f'I = {data["I"]:6.3f} kA, V = {data["V"]:8.3f} kV.')
-    print(f'Total P = {results["loads"]["Ptot"]*1e-3:5.2f} GW, total Q = {results["loads"]["Qtot"]*1e-3:5.2f} GVAR')
+    print(f'Total P = {results["loads"]["Ptot"]*1e-3:7.4f} GW, total Q = {results["loads"]["Qtot"]*1e-3:7.4f} GVAR')
     
     print('\n======= Buses ========')
     for name in sorted(list(results['buses'].keys())):

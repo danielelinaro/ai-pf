@@ -146,8 +146,10 @@ def run_sim(config_file, output_file=None, output_dir='.', output_file_prefix=''
     elements_map = {'generators': '*.ElmSym', 'loads': '*.ElmLod',
                     'buses': '*.ElmTerm', 'lines': '*.ElmLne'}
     monitored_variables = {}
+    elements_names = {}
     for k,v in elements_map.items():
         try:
+            elements_names[v] = [var['name'] for var in config['vars_map'][k]]
             var_names = []
             for req in config['vars_map'][k]:
                 for var_in in req['vars_in']:
@@ -161,8 +163,9 @@ def run_sim(config_file, output_file=None, output_dir='.', output_file_prefix=''
     res = app.GetFromStudyCase('*.ElmRes')
     for elements,var_names in monitored_variables.items():
         for element in app.GetCalcRelevantObjects(elements):
-            for var_name in var_names:
-                res.AddVariable(element, var_name)
+            if element.loc_name in elements_names[elements]:
+                for var_name in var_names:
+                    res.AddVariable(element, var_name)
 
     ### find the load that should be stochastic
     stochastic_load_name = config['random_load_name']
