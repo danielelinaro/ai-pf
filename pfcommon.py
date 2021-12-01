@@ -189,7 +189,7 @@ class PowerLine (object):
 
 class PowerTransformer (object):
     def __init__(self, transformer):
-        par_names = {'ntnum': 'num'}
+        par_names = {'ntnum': 'num', 'nntap': 'nntap', 't:dutap': 'tappc'}
         type_par_names = {'r1pu': 'r', 'x1pu': 'x', 'strn': 'prating',
                   'utrn_h': 'vh', 'utrn_l': 'vl'}
         bus_names = ['buslv', 'bushv']
@@ -198,17 +198,19 @@ class PowerTransformer (object):
             self.__setattr__(k, v)
         if self.num > 1:
             print(f'Transformer {self.name} has {self.num} parallel transformers.')
-        self.kt = self.vh / self.vl
+        self.a = self.vh / self.vl
+        self.tappc /= 100   # percentage of voltage increase for each tap
+        self.kt = 1 + self.nntap * self.tappc
         self.prating *= self.num * 1e6
         self.vrating = data['vl'] * 1e3
 
     def __str__(self):
         return ('{} {:5s} {:5s} powertransformer r={:.6e} x={:.6e} ' +
-                'kt={:.6e} prating={:.6e} vrating={:.6e}') \
+                'a={:.6e} kt={:.6e} prating={:.6e} vrating={:.6e}') \
                 .format(self.name.replace(' ', '').replace('-',''),
                        _bus_name_to_terminal_name(self.terminals[0]),
                        _bus_name_to_terminal_name(self.terminals[1]),
-                       self.r, self.x, self.kt,
+                       self.r, self.x, self.a, self.kt,
                        self.prating, self.vrating)
     
 class PowerBus (object):
