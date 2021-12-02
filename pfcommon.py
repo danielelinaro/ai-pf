@@ -50,32 +50,47 @@ class AutomaticVoltageRegulator (object):
     @property
     def fmt(self):
         return self.name.replace(' ', '') + ' {} {} poweravr ' + \
-            'vrating={} type={} vmax={} vmin={} \\\n\t\t'.format(self.vrating, self.type_id, self.vmax, self.vmin) + \
-            'ka={} ta={} kf={} tf={} ke={} te={} tr={} ae={} be={}'.format(self.ka, self.ta, self.kf, self.tf,
-                                                                          self.ke, self.te, self.tr, self.ae, self.be)
+            'vrating={} type={} vmax={} vmin={} \\\n\t\t' \
+                .format(self.vrating, self.type_id, self.vmax, self.vmin) + \
+            'ka={} ta={} kf={} tf={} ke={} te={} tr={} ae={} be={}' \
+                .format(self.ka, self.ta, self.kf, self.tf,
+                        self.ke, self.te, self.tr, self.ae, self.be)
 
 
 class TurbineGovernor (object):
-    def __init__(self, gov, type_id=1, omegaref=1, t3=0.0):
-        par_names = {'Pmin': 'pmin', 'Pmax': 'pmax',
-                     'K': 'r',
-                     'T1': 'ts', # governor time constant
-                     'T3': 'tc', # servo time constant
-                     'T4': 't4', 'T5': 't5'}
+    def __init__(self, gov, type_name):
+        self.type_name = type_name.upper()
+        if self.type_name not in ('IEEEG1', 'IEEEG3'):
+            raise Exception('Governor type must be one of "IEEEG1" or "IEEEG3"')
+        if self.type_name == 'IEEEG1':
+            par_names = {'K': 'k', 'T1': 't1', 'T2': 't2', 'T3': 't3',
+                         'K1': 'k1', 'K2': 'k2', 'T5': 't5', 'K3': 'k3',
+                         'K4': 'k4', 'T6': 't6', 'K5': 'k5', 'K6': 'k6',
+                         'T4': 't4', 'T7': 't7', 'K7': 'k7', 'K8': 'k8',
+                         'Uc': 'uc', 'Uo': 'uo', 'Pmin': 'pmin', 'Pmax': 'pmax'}
+        elif self.type_name == 'IEEEG3':
+            par_names = {'Tg': 'tg', 'Tp': 'tp', 'Sigma': 'sigma', 'Delta': 'delta',
+                         'Tr': 'tr', 'a11': 'a11', 'a13': 'a13', 'a21': 'a21',
+                         'a23': 'a23', 'Tw': 'tw', 'Uc': 'uc', 'Uo': 'uo',
+                         'Pmin': 'pmin', 'Pmax': 'pmax'}
         data = _read_element_parameters(gov, par_names, bus_names=None)
         for k,v in data.items():
             self.__setattr__(k, v)
-        self.type_id = type_id
-        self.omegaref = 1
-        self.t3 = t3
+        self.par_names = par_names
 
     @property
     def fmt(self):
-        return self.name.replace(' ', '') + ' {} {} powertg ' + \
-            'type={} omegaref={} r={} pmax={} pmin={} \\\n\t\t'.format(self.type_id, self.omegaref,
-                                                                       self.r, self.pmax, self.pmin) + \
-            'ts={} tc={} t3={} t4={} t5={} '.format(self.ts, self.tc, self.t3, self.t4, self.t5) + \
-            'gen="{}"'
+        s = self.name.replace(' ', '')
+        if self.type_name == 'IEEEG1':
+             s += ' {} {} {} IEEEG1Tg'
+        elif self.type_name == 'IEEEG3':
+             s += ' {} {} IEEEG3Tg'
+        for i,par_name in enumerate(self.par_names.values()):
+            s += ' {}={}'.format(par_name, self.__getattribute__(par_name))
+            if (i+1) % 5 == 0 and i != len(self.par_names) - 1:
+                s += ' \\\n\t\t'
+        return s
+
 
 class PowerGenerator (object):
     def __init__(self, generator, type_id=4):
@@ -138,15 +153,29 @@ class PowerPlant (object):
                 elif 'avr' in slot.loc_name.lower():
                     self.avr = AutomaticVoltageRegulator(element)
                 elif 'gov' in slot.loc_name.lower():
-                    self.gov = TurbineGovernor(element)
+                    name = element.typ_id.loc_name.lower()
+                    type_name = None
+                    if 'ieee' in name:
+                        if 'g1' in name:
+                            type_name = 'IEEEG1'
+                        elif 'g3' in name:
+                            type_name = 'IEEEG3'
+                    if type_name is None:
+                        raise Exception(f'Unknown governor type "{name}"')
+                    self.gov = TurbineGovernor(element, type_name)
         self.avr.vrating = self.gen.vrating
                     
     def __str__(self):
         bus_id = self.gen.bus_id
-        gen_str = self.gen.fmt.format(f'avr{bus_id}', f'pm{bus_id}')
-        gen_name = self.gen.name.replace(' ', '')
         avr_str = self.avr.fmt.format(f'bus{bus_id}', f'avr{bus_id}')
-        gov_str = self.gov.fmt.format(f'pm{bus_id}', f'omega{bus_id}', gen_name)
+        if self.gov.type_name.upper() == 'IEEEG1':
+            gov_str = self.gov.fmt.format(f'omega{bus_id}', f'php{bus_id}', f'plp{bus_id}')
+            gen_str = self.gen.fmt.format(f'avr{bus_id}', f'php{bus_id}')
+        elif self.gov.type_name.upper() == 'IEEEG3':
+            gov_str = self.gov.fmt.format(f'omega{bus_id}', f'pm{bus_id}')
+            gen_str = self.gen.fmt.format(f'avr{bus_id}', f'pm{bus_id}')
+        else:
+            raise Exception(f'Unknown governor type "{self.gov.type_name}"')
         return avr_str + '\n\n' + gov_str + '\n\n' + gen_str
 
 
