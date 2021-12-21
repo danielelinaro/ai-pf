@@ -7,9 +7,9 @@ __all__ = ['BaseParameters', 'AutomaticVoltageRegulator', 'TurbineGovernor', 'Po
            'PowerGenerator', 'PowerPlant', 'PowerBus', 'PowerTransformer', 'PowerLine',
            'get_simulation_variables', 'get_simulation_time', 'get_simulation_dt',
            'get_ID', 'get_line_bus_IDs', 'normalize', 'OU', 'OU_2', 'run_load_flow',
-           'print_load_flow', 'correct_Vd_Vq', 'find_element_by_name',
-           'is_voltage', 'is_power', 'is_frequency', 'compute_generator_inertias',
-           'sort_objects_by_name']
+           'print_load_flow', 'correct_traces', 'find_element_by_name',
+           'is_voltage', 'is_power', 'is_frequency', 'is_current', 
+           'compute_generator_inertias', 'sort_objects_by_name', 'get_objects']
 
 
 class BaseParameters (tables.IsDescription):
@@ -34,27 +34,30 @@ def _read_element_parameters(element, par_names=None, type_par_names=None, bus_n
     return data
 
 class AutomaticVoltageRegulator (object):
-    def __init__(self, avr, type_id=2, vrating=16.5e3, ae=0.0006, be=0.9):
+    def __init__(self, avr, type_name, vrating=16.5e3):
+        self.type_name = type_name.upper()
+        if self.type_name not in ('IEEEEXC1',):
+            raise Exception('AVR type must be "IEEEExc1"')
         par_names = {'Ka': 'ka', 'Ta': 'ta', 'Kf': 'kf',
                      'Tf': 'tf', 'Ke': 'ke', 'Te': 'te',
-                     'Tr': 'tr', 'Vrmin': 'vmin', 'Vrmax': 'vmax'}
+                     'Tr': 'tr', 'Vrmin': 'vmin', 'Vrmax': 'vmax',
+                     'E1': 'e1', 'E2': 'e2', 'Se1': 'se1', 'Se2': 'se2'}
+        self.type_ID = 2
         data = _read_element_parameters(avr, par_names, bus_names=None)
         for k,v in data.items():
             self.__setattr__(k, v)
-        if self.tr == 0:
-            self.tr = 1e-3
-        self.type_id = type_id
         self.vrating = vrating
-        self.ae, self.be = ae, be
+        self.par_names = par_names
 
     @property
     def fmt(self):
-        return self.name.replace(' ', '') + ' {} {} poweravr ' + \
-            'vrating={} type={} vmax={} vmin={} \\\n\t\t' \
-                .format(self.vrating, self.type_id, self.vmax, self.vmin) + \
-            'ka={} ta={} kf={} tf={} ke={} te={} tr={} ae={} be={}' \
-                .format(self.ka, self.ta, self.kf, self.tf,
-                        self.ke, self.te, self.tr, self.ae, self.be)
+        s = self.name.replace(' ', '') + ' {} {} poweravr type=' + str(self.type_ID)
+        s += ' vrating={:e} \\\n\t\t'.format(self.vrating)
+        for i,par_name in enumerate(self.par_names.values()):
+            s += '{}={} '.format(par_name, self.__getattribute__(par_name))
+            if (i+1) % 5 == 0 and i != len(self.par_names) - 1:
+                s += '\\\n\t\t'
+        return s
 
 
 class TurbineGovernor (object):
@@ -63,53 +66,58 @@ class TurbineGovernor (object):
         if self.type_name not in ('IEEEG1', 'IEEEG3'):
             raise Exception('Governor type must be one of "IEEEG1" or "IEEEG3"')
         if self.type_name == 'IEEEG1':
-            par_names = {'K': 'k', 'T1': 't1', 'T2': 't2', 'T3': 't3',
+            par_names = {'K': 'r', 'T1': 't1', 'T2': 't2', 'T3': 't3',
                          'K1': 'k1', 'K2': 'k2', 'T5': 't5', 'K3': 'k3',
                          'K4': 'k4', 'T6': 't6', 'K5': 'k5', 'K6': 'k6',
                          'T4': 't4', 'T7': 't7', 'K7': 'k7', 'K8': 'k8',
                          'Uc': 'uc', 'Uo': 'uo', 'Pmin': 'pmin', 'Pmax': 'pmax'}
+            self.type_ID = 3
         elif self.type_name == 'IEEEG3':
             par_names = {'Tg': 'tg', 'Tp': 'tp', 'Sigma': 'sigma', 'Delta': 'delta',
                          'Tr': 'tr', 'a11': 'a11', 'a13': 'a13', 'a21': 'a21',
                          'a23': 'a23', 'Tw': 'tw', 'Uc': 'uc', 'Uo': 'uo',
                          'Pmin': 'pmin', 'Pmax': 'pmax'}
+            self.type_ID = 4
         data = _read_element_parameters(gov, par_names, bus_names=None)
         for k,v in data.items():
             self.__setattr__(k, v)
+        if self.type_name == 'IEEEG1':
+            self.r = 1. / self.r
         self.par_names = par_names
 
     @property
     def fmt(self):
-        s = self.name.replace(' ', '')
-        if self.type_name == 'IEEEG1':
-             s += ' {} {} {} IEEEG1Tg'
-        elif self.type_name == 'IEEEG3':
-             s += ' {} {} IEEEG3Tg'
+        s = self.name.replace(' ', '') + ' {} {} '
+        s += 'powertg type={} \\\n\t\t'.format(self.type_ID)
         for i,par_name in enumerate(self.par_names.values()):
-            s += ' {}={}'.format(par_name, self.__getattribute__(par_name))
+            s += '{}={} '.format(par_name, self.__getattribute__(par_name))
             if (i+1) % 5 == 0 and i != len(self.par_names) - 1:
-                s += ' \\\n\t\t'
+                s += '\\\n\t\t'
         return s
 
 
 class PowerGenerator (object):
-    def __init__(self, generator, type_id=4):
+    def __init__(self, generator):
         par_names = {'pgini': 'pg', 'usetp': 'vg', 'Pmax_uc': 'pmax', 'Pmin_uc': 'pmin',
                 'q_min': 'qmin', 'q_max': 'qmax', 'ngnum': 'num', 'ip_ctrl': 'ref_gen'}
         type_par_names = {'sgn': 'prating', 'ugn': 'vrating', 'cosn': 'cosn', 'h': 'h',
-                     'xl': 'xl', 'xd': 'xd', 'xq': 'xq',
+                     'xl': 'xl', 'xd': 'xd', 'xq': 'xq', 'rstr': 'ra',
                      'xrl': 'xrl', 'xrlq': 'xrlq', 'tds0': 'td0p', 'tqs0': 'tq0p',
                      'xds': 'xdp', 'xqs': 'xqp', 'tdss0': 'td0s', 'tqss0': 'tq0s',
                      'xdss': 'xds', 'xqss': 'xqs', 'dpe': 'd', 'iturbo': 'rotor_type'}
         data = _read_element_parameters(generator, par_names, type_par_names)
         for k,v in data.items():
             self.__setattr__(k, v)
-        if self.rotor_type == 0: # salient pole
-            self.xqp = 0
-            self.tq0p = 0
         if self.ref_gen:
             print(f'{self.name} is the slack generator.')
-        self.type_id = type_id
+        if self.rotor_type == 0:
+            # salient pole
+            self.type_id = 3
+        elif self.rotor_type == 1:
+            # round rotor
+            self.type_id = 4
+        else:
+            raise Exception('Unknown rotor type: "{}"'.format(self.rotor_type))
         self.bus_id = int(re.findall('\d+', self.terminals[0])[0])
         self.pg /= self.prating
         self.pmax /= self.prating
@@ -131,10 +139,13 @@ class PowerGenerator (object):
             .format(self.vg, self.prating, self.vrating) + \
             'qmax={:g} qmin={:g} pmax={:g} pmin={:g} \\\n\t\t' \
             .format(self.qmax, self.qmin, self.pmax, self.pmin) + \
-            'xdp={:g} xqp={:g} xd={:g} xq={:g} \\\n\t\t' \
-            .format(self.xdp, self.xqp, self.xd, self.xq) + \
-            'td0p={:g} tq0p={:g} xl={:g} h={:g} d={:g}' \
-            .format(self.td0p, self.tq0p, self.xl, self.h, self.d)
+            'xdp={:g} xd={:g} xq={:g} ra={:g} \\\n\t\t' \
+            .format(self.xdp, self.xd, self.xq, self.ra) + \
+            'td0p={:g} xl={:g} h={:g} d={:g} ' \
+            .format(self.td0p, self.xl, self.h, self.d)
+        if self.rotor_type == 1:
+            # round rotor
+            s+= 'xqp={:g} tq0p={:g}'.format(self.xqp, self.tq0p)
         return s
     
     def __str__(self):
@@ -151,7 +162,7 @@ class PowerPlant (object):
                 if 'sym' in slot.loc_name.lower():
                     self.gen = PowerGenerator(element)
                 elif 'avr' in slot.loc_name.lower():
-                    self.avr = AutomaticVoltageRegulator(element)
+                    self.avr = AutomaticVoltageRegulator(element, type_name='IEEEEXC1')
                 elif 'gov' in slot.loc_name.lower():
                     name = element.typ_id.loc_name.lower()
                     type_name = None
@@ -169,10 +180,10 @@ class PowerPlant (object):
         bus_id = self.gen.bus_id
         avr_str = self.avr.fmt.format(f'bus{bus_id}', f'avr{bus_id}')
         if self.gov.type_name.upper() == 'IEEEG1':
-            gov_str = self.gov.fmt.format(f'omega{bus_id}', f'php{bus_id}', f'plp{bus_id}')
+            gov_str = self.gov.fmt.format(f'php{bus_id}', f'omega{bus_id}')
             gen_str = self.gen.fmt.format(f'avr{bus_id}', f'php{bus_id}')
         elif self.gov.type_name.upper() == 'IEEEG3':
-            gov_str = self.gov.fmt.format(f'omega{bus_id}', f'pm{bus_id}')
+            gov_str = self.gov.fmt.format(f'pm{bus_id}', f'omega{bus_id}')
             gen_str = self.gen.fmt.format(f'avr{bus_id}', f'pm{bus_id}')
         else:
             raise Exception(f'Unknown governor type "{self.gov.type_name}"')
@@ -257,6 +268,10 @@ class PowerBus (object):
                 .format(self.name.replace(' ', ''),
                         self.terminal, self.vb, self.v0, self.theta0)
 
+    
+get_objects = lambda app, pattern: [obj for obj in app.GetCalcRelevantObjects(pattern) if not obj.outserv]
+
+
 def sort_objects_by_name(objects):
     argsort = lambda lst: [i for i,_ in sorted(enumerate(lst), key=lambda x: x[1])]
     idx = argsort([obj.loc_name for obj in objects])
@@ -309,6 +324,7 @@ is_voltage = lambda var_name: var_name in ('m:ur', 'm:ui', 'm:u')
 is_power = lambda var_name: var_name in ('m:P:bus1', 'm:Q:bus1', \
                                          'm:Psum:bus1', 'm:Qsum:bus1')
 is_frequency = lambda var_name: var_name in ('m:fe', )
+is_current = lambda var_name: var_name in ('m:ir:bus1', 'm:iu:bus1', 'm:i:bus1')
 
 
 def find_element_by_name(elements, name):
@@ -321,20 +337,20 @@ def find_element_by_name(elements, name):
     return None
 
 
-def correct_Vd_Vq(Vd, Vq, delta):
+def correct_traces(xre, xim, delta):
     """
-       Vd - (MxN) array, where M is the number of samples and N the number of buses at which Vd is recorded
-       Vq - (MxN) array, where M is the number of samples and N the number of buses at which Vq is recorded
+      xre - (MxN) array, where M is the number of samples and N the number of buses at which xre is recorded
+      xim - (MxN) array, where M is the number of samples and N the number of buses at which xim is recorded
     delta - (Mx1) array, measured in degrees
     """
     # convert delta to radians
     try:
-        n = Vd.shape[1]
-        delta_ref = np.tile(delta / 180 * np.pi, [n,1]).T
+        n = xre.shape[1]
+        delta_ref = np.tile((delta - delta[0]) / 180 * np.pi, [n,1]).T
     except:
-        delta_ref = delta / 180 * np.pi
-    mod = np.sqrt(Vd**2 + Vq**2)
-    angle = np.arctan2(Vq, Vd) - delta_ref
+        delta_ref = (delta - delta[0]) / 180 * np.pi
+    mod = np.sqrt(xre**2 + xim**2)
+    angle = np.arctan2(xim, xre) - delta_ref
     return mod * np.cos(angle), mod * np.sin(angle)
 
 

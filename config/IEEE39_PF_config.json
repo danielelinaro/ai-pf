@@ -23,15 +23,14 @@
     "save_OU": true,
     "frand": 200.0,
     "decimation": 20,
-    "correct_Vd_Vq": true,
+    "correct_voltages_and_currents": true,
     "use_physical_units": true,
-    "tstop": [600.0],
+    "tstop": [3600.0],
     "vars_map" : {
     	"time": "time",
     	"generators": [
-        	{"name": "G 01", "vars_in": ["c:fi"], "vars_out": ["delta_ref"]},
-        	{"name": "G 02", "vars_in": ["m:P:bus1", "m:Q:bus1"],
-			"vars_out": ["Pe_G02", "Qe_G02"]},
+        	{"name": "G 02", "vars_in": ["c:fi", "s:ve", "s:fe", "s:phi", "m:P:bus1", "m:Q:bus1"],
+			"vars_out": ["delta_ref", "V_exc", "f_out", "phi", "Pe_G02", "Qe_G02"]},
         	{"name": "G 03", "vars_in": ["m:P:bus1", "m:Q:bus1"],
 			"vars_out": ["Pe_G03", "Qe_G03"]}
     	],
@@ -52,18 +51,24 @@
          	 "vars_out": ["omegael_bus32", "Vd_bus32", "Vq_bus32"]}
     	],
     	"lines": [
-        	{"name": "Line 02 - 03", "vars_in": ["m:P:bus1", "m:Q:bus1", "m:I:bus1"],
-        	 "vars_out": ["Pe_line_2_3", "Qe_line_2_3", "I_line_2_3"]},
-        	{"name": "Line 03 - 18", "vars_in": ["m:P:bus1", "m:Q:bus1", "m:I:bus1"],
-        	 "vars_out": ["Pe_line_3_18", "Qe_line_3_18", "I_line_3_18"]},
-        	{"name": "Line 04 - 14", "vars_in": ["m:P:bus1", "m:Q:bus1", "m:I:bus1"],
-        	 "vars_out": ["Pe_line_4_14", "Qe_line_4_14", "I_line_4_14"]},
-	        {"name": "Line 01 - 39", "vars_in": ["m:P:bus1", "m:Q:bus1", "m:I:bus1"],
-        	 "vars_out": ["Pe_line_1_39", "Qe_line_1_39", "I_line_1_39"]},
-	        {"name": "Line 10 - 11", "vars_in": ["m:P:bus1", "m:Q:bus1", "m:I:bus1"],
-        	 "vars_out": ["Pe_line_10_11", "Qe_line_10_11", "I_line_10_11"]},
-	        {"name": "Line 10 - 13", "vars_in": ["m:P:bus1", "m:Q:bus1", "m:I:bus1"],
-        	 "vars_out": ["Pe_line_10_13", "Qe_line_10_13", "I_line_10_13"]}
+        	{"name": "Line 02 - 03", "vars_in": ["m:P:bus1", "m:Q:bus1", "m:I:bus1", "m:ir:bus1", "m:ii:bus1"],
+        	 "vars_out": ["Pe_line_2_3", "Qe_line_2_3", "I_line_2_3", "Id_line_2_3", "Iq_line_2_3"]},
+        	{"name": "Line 03 - 18", "vars_in": ["m:P:bus1", "m:Q:bus1", "m:I:bus1", "m:ir:bus1", "m:ii:bus1"],
+        	 "vars_out": ["Pe_line_3_18", "Qe_line_3_18", "I_line_3_18", "Id_line_3_18", "Iq_line_3_18"]},
+        	{"name": "Line 03 - 04", "vars_in": ["m:P:bus1", "m:Q:bus1", "m:I:bus1", "m:ir:bus1", "m:ii:bus1"],
+        	 "vars_out": ["Pe_line_3_4", "Qe_line_3_4", "I_line_3_4", "Id_line_3_4", "Iq_line_3_4"]},
+        	{"name": "Line 04 - 14", "vars_in": ["m:P:bus1", "m:Q:bus1", "m:I:bus1", "m:ir:bus1", "m:ii:bus1"],
+        	 "vars_out": ["Pe_line_4_14", "Qe_line_4_14", "I_line_4_14", "Id_line_4_14", "Iq_line_4_14"]},
+	        {"name": "Line 01 - 39", "vars_in": ["m:P:bus1", "m:Q:bus1", "m:I:bus1", "m:ir:bus1", "m:ii:bus1"],
+        	 "vars_out": ["Pe_line_1_39", "Qe_line_1_39", "I_line_1_39", "Id_line_1_39", "Iq_line_1_39"]},
+	        {"name": "Line 10 - 11", "vars_in": ["m:P:bus1", "m:Q:bus1", "m:I:bus1", "m:ir:bus1", "m:ii:bus1"],
+        	 "vars_out": ["Pe_line_10_11", "Qe_line_10_11", "I_line_10_11", "Id_line_10_11", "Iq_line_10_11"]},
+	        {"name": "Line 10 - 13", "vars_in": ["m:P:bus1", "m:Q:bus1", "m:I:bus1", "m:ir:bus1", "m:ii:bus1"],
+        	 "vars_out": ["Pe_line_10_13", "Qe_line_10_13", "I_line_10_13", "Id_line_10_13", "Iq_line_10_13"]},
+	        {"name": "Line 14 - 15", "vars_in": ["m:P:bus1", "m:Q:bus1", "m:I:bus1", "m:ir:bus1", "m:ii:bus1"],
+        	 "vars_out": ["Pe_line_14_15", "Qe_line_14_15", "I_line_14_15", "Id_line_14_15", "Iq_line_14_15"]},
+	        {"name": "Line 16 - 17", "vars_in": ["m:P:bus1", "m:Q:bus1", "m:I:bus1", "m:ir:bus1", "m:ii:bus1"],
+        	 "vars_out": ["Pe_line_16_17", "Qe_line_16_17", "I_line_16_17", "Id_line_16_17", "Iq_line_16_17"]}
     	]
 	}
 }

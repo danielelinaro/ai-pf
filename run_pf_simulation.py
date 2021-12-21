@@ -15,8 +15,8 @@ if powerfactory_path not in sys.path:
 import powerfactory as pf
 
 from pfcommon import sort_objects_by_name, OU_2, BaseParameters, \
-    get_simulation_time, get_simulation_variables, correct_Vd_Vq, is_voltage, \
-    is_frequency, find_element_by_name
+    get_simulation_time, get_simulation_variables, correct_traces, \
+    is_voltage, is_current, is_frequency, find_element_by_name
 
 __all__ = ['run_sim']
 
@@ -117,11 +117,13 @@ def run_sim(config_file, output_file=None, output_dir='.', output_file_prefix=''
         print(f'There are {N_loads} loads.')
 
     Vrating = {'buses': {}, 'lines': {}}
+    Irating = {'lines': {}}
     Prating = {'loads': {'P': {}, 'Q': {}}}
     for bus in buses:
         Vrating['buses'][bus.loc_name] = bus.uknom
     for line in lines:
         Vrating['lines'][line.loc_name] = line.typ_id.uline
+        Irating['lines'][line.loc_name] = line.typ_id.sline
     for load in loads:
         Prating['loads']['P'][load.loc_name] = load.plini
         Prating['loads']['Q'][load.loc_name] = load.qlini
@@ -139,8 +141,12 @@ def run_sim(config_file, output_file=None, output_dir='.', output_file_prefix=''
     #    raise Exception(f'Cannot activate study case "{study_case_name}"')
     if verbose: print(f'Successfully activated study case "{study_case_name}".')
     
-    grid = app.GetCalcRelevantObjects('*.ElmNet')[0]
+    grids = app.GetCalcRelevantObjects('*.ElmNet')
+    for grid in grids:
+        if grid.pDiagram is not None:
+            break
     nominal_frequency = grid.frnom
+    if verbose: print(f'Grid "{grid.loc_name}" nominal frequency: {nominal_frequency} Hz.')
 
     ### tell PowerFactory which variables should be saved to its internal file
     elements_map = {'generators': '*.ElmSym', 'loads': '*.ElmLod',
@@ -229,10 +235,7 @@ def run_sim(config_file, output_file=None, output_dir='.', output_file_prefix=''
 
     # simulation parameters
     frand = config['frand']        # [Hz] sampling rate of the random signal
-    try:
-        decimation = config['decimation']
-    except:
-        decimation = 1
+    decimation = config['decimation'] if 'decimation' in config else 1
     tstop = config['tstop'][-1]    # [s]  total simulation duration
     dt = 1 / frand
     t = dt + np.r_[0 : tstop + dt/2 : dt]
@@ -253,7 +256,7 @@ def run_sim(config_file, output_file=None, output_dir='.', output_file_prefix=''
 
     N_random_loads = 1
 
-    generator_types = {gen.loc_name: gen.GetAttribute('typ_id') for gen in generators}
+    generator_types = {gen.loc_name: gen.typ_id for gen in generators}
 
     fid = tables.open_file(output_file, file_open_mode,
                            filters=tables.Filters(complib='zlib', complevel=5))
@@ -363,8 +366,9 @@ def run_sim(config_file, output_file=None, output_dir='.', output_file_prefix=''
     write_trace_to_file(time, fid, vars_map['time'], atom, extendable=False)
     if verbose: sys.stdout.write('done.\n')
 
-    correct_voltages = False
-    if 'correct_Vd_Vq' in config and config['correct_Vd_Vq']:
+    correct_VI = False
+    if 'correct_voltages_and_currents' in config \
+        and config['correct_voltages_and_currents']:
         try:
             for delta_ref_entry in vars_map['generators']:
                 vars_in = delta_ref_entry['vars_in']
@@ -375,13 +379,13 @@ def run_sim(config_file, output_file=None, output_dir='.', output_file_prefix=''
                     vars_out = delta_ref_entry['vars_out']
                     delta_ref_var_out = vars_out[vars_in.index('c:fi')]
                     write_trace_to_file(delta_ref, fid, delta_ref_var_out, atom)
-                    correct_voltages = True
+                    correct_VI = True
                     if verbose: print(f'{delta_ref_entry["name"]} is the reference generator.')
                     break
         except:
             pass
-        if not correct_voltages:
-            print('Cannot correct Vd and Vq because no generator delta is specified as reference.')
+        if not correct_VI:
+            print('Cannot correct voltages and currents because no generator delta is specified as reference.')
 
     elements_map = {'generators': generators, 'buses': buses, 'loads': loads, 'lines': lines}
     for key in config['vars_map']:
@@ -395,7 +399,8 @@ def run_sim(config_file, output_file=None, output_dir='.', output_file_prefix=''
         
         for req in config['vars_map'][key]:
             found = False
-            Vd, Vq = None, None
+            Vre, Vim = None, None
+            Ire, Iim = None, None
             for elem in elements:
                 if elem.loc_name == req['name']:
                     found = True
@@ -404,31 +409,49 @@ def run_sim(config_file, output_file=None, output_dir='.', output_file_prefix=''
                 print(f'Cannot find an element named {req["name"]} among the elements of type "{key}".')
                 continue
             for var_in,var_out in zip(req['vars_in'], req['vars_out']):
-                if correct_voltages and var_in == 'c:fi' and req['name'] == delta_ref_entry['name']:
+                if correct_VI and var_in == 'c:fi' and req['name'] == delta_ref_entry['name']:
                     continue
                 if verbose:
                     sys.stdout.write(f'Reading {var_in} from {req["name"]}... ')
                     sys.stdout.flush()
                 x = get_simulation_variables(res, var_in, elements=[elem], decimation=decimation)
-                if correct_voltages and var_in in ('m:ur', 'm:ui'):
+                if correct_VI and var_in in ('m:ur', 'm:ui', \
+                                             'm:ir:bus1', 'm:ii:bus1', \
+                                             'm:i1r:bus1', 'm:i1i:bus1'):
                     if var_in == 'm:ur':
-                        Vd = x
-                        Vd_var_out = var_out
+                        Vre = x
+                        Vre_var_out = var_out
                     elif var_in == 'm:ui':
-                        Vq = x
-                        Vq_var_out = var_out
-                    if Vd is not None and Vq is not None:
-                        Vd, Vq = correct_Vd_Vq(Vd, Vq, delta_ref)
+                        Vim = x
+                        Vim_var_out = var_out
+                    elif var_in in ('m:ir:bus1', 'm:i1r:bus1'):
+                        Ire = x
+                        Ire_var_out = var_out
+                    elif var_in in ('m:ii:bus1', 'm:i1i:bus1'):
+                        Iim = x
+                        Iim_var_out = var_out
+                    if Vre is not None and Vim is not None:
+                        Vre, Vim = correct_traces(Vre, Vim, delta_ref)
                         if config['use_physical_units']:
-                            Vd *= Vrating[key][req['name']]
-                            Vq *= Vrating[key][req['name']]
-                        write_trace_to_file(Vd, fid, Vd_var_out, atom)
-                        write_trace_to_file(Vq, fid, Vq_var_out, atom)
-                        Vd, Vq = None, None
+                            Vre *= Vrating[key][req['name']]
+                            Vim *= Vrating[key][req['name']]
+                        write_trace_to_file(Vre, fid, Vre_var_out, atom)
+                        write_trace_to_file(Vim, fid, Vim_var_out, atom)
+                        Vre, Vim = None, None
+                    elif Ire is not None and Iim is not None:
+                        Ire, Iim = correct_traces(Ire, Iim, delta_ref)
+                        if config['use_physical_units']:
+                            Ire *= Irating[key][req['name']]
+                            Iim *= Irating[key][req['name']]
+                        write_trace_to_file(Ire, fid, Ire_var_out, atom)
+                        write_trace_to_file(Iim, fid, Iim_var_out, atom)
+                        Ire, Iim = None, None
                 else:
                     if config['use_physical_units']:
                         if is_voltage(var_in):
                             x *= Vrating[key][req['name']]
+                        elif is_current(var_in):
+                            x *= Irating[key][req['name']]
                         elif is_frequency(var_in):
                             x *= nominal_frequency
                     write_trace_to_file(x, fid, var_out, atom)
