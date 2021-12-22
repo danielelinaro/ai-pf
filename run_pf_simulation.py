@@ -1,4 +1,5 @@
 
+import re
 import os
 import sys
 import json
@@ -184,7 +185,7 @@ def run_sim(config_file, output_file=None, output_dir='.', output_file_prefix=''
             break
     if not found:
         raise Exception(f'Cannot find load named "{variable_load_name}"')
-    
+
     composite_model_name = 'Stochastic Load'
     found = False
     for composite_model in app.GetCalcRelevantObjects('*.ElmComp'):
@@ -276,7 +277,7 @@ def run_sim(config_file, output_file=None, output_dir='.', output_file_prefix=''
     
     if 'parameters' not in fid.root:
         
-        class BaseParameters2 (BaseParameters):
+        class Parameters (BaseParameters):
             generator_IDs  = tables.StringCol(32, shape=(N_generators,))
             S_nominal      = tables.Float64Col(shape=(N_generators,))
             bus_IDs        = tables.StringCol(32, shape=(N_buses,))
@@ -291,14 +292,13 @@ def run_sim(config_file, output_file=None, output_dir='.', output_file_prefix=''
             tstop          = tables.Float64Col(shape=(N_blocks,))
 
         if 'OU' in config:
-            class Parameters (BaseParameters2):
-                alpha = tables.Float64Col(shape=(N_variable_loads,))
-                mu    = tables.Float64Col(shape=(N_variable_loads,))
-                c     = tables.Float64Col(shape=(N_variable_loads,))
+            Parameters.__dict__['columns']['rng_seeds'] = tables.Int64Col(shape=(N_variable_loads,))
+            for key in 'alpha','mu','c':
+                Parameters.__dict__['columns'][key] = tables.Float64Col(shape=(N_variable_loads,))
         elif 'PWL' in config:
             m,n = PWL.shape
-            class Parameters (BaseParameters2):
-                PWL   = tables.Float64Col(shape=(m,n))
+            variable_load_bus = int(re.findall('\d+', variable_load.bus1.cterm.loc_name)[0])
+            Parameters.__dict__['columns'][f'PWL_bus_{variable_load_bus}'] = tables.Float64Col(shape=(m,n))
 
         tbl = fid.create_table(fid.root, 'parameters', Parameters, 'parameters')
         params = tbl.row
@@ -317,11 +317,12 @@ def run_sim(config_file, output_file=None, output_dir='.', output_file_prefix=''
         params['Q_rating_loads'] = [Prating['loads']['Q'][ID] for ID in load_IDs]
         params['var_load_names'] = [variable_load_name]
         if 'OU' in config:
+            params['rng_seeds']  = [rng_seed]
             params['alpha']      = [alpha]
             params['mu']         = [mu]
             params['c']          = [c]
         elif 'PWL' in config:
-            params['PWL']        = PWL
+            params[f'PWL_bus_{variable_load_bus}'] = PWL
         params.append()
         tbl.flush()
 
