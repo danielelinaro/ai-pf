@@ -14,18 +14,13 @@
     	"G 10": [4.2]
     },
     "variable_load_name": "Load 03",
-    "OU": {
-    	"alpha": 0.5,
-    	"mu": 0.0,
-    	"c": 0.5
-    },
-	"seed": 100,
+    "PWL": [[0, 0], [100, 5], [250, 0]],
     "save_load": true,
     "srate": 200.0,
     "decimation": 20,
     "correct_voltages_and_currents": true,
     "use_physical_units": true,
-    "tstop": [3600.0],
+    "tstop": [400],
     "vars_map" : {
     	"time": "time",
     	"generators": [

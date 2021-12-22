@@ -14,7 +14,7 @@ __all__ = ['BaseParameters', 'AutomaticVoltageRegulator', 'TurbineGovernor', 'Po
 
 class BaseParameters (tables.IsDescription):
     F0    = tables.Float64Col()
-    frand = tables.Float64Col()
+    srate = tables.Float64Col()
 
 
 def _bus_name_to_terminal_name(bus):
@@ -323,7 +323,7 @@ def compute_generator_inertias(target_H_area, area_ID, default_H='IEEE39', S='IE
 is_voltage = lambda var_name: var_name in ('m:ur', 'm:ui', 'm:u')
 is_power = lambda var_name: var_name in ('m:P:bus1', 'm:Q:bus1', \
                                          'm:Psum:bus1', 'm:Qsum:bus1')
-is_frequency = lambda var_name: var_name in ('m:fe', )
+is_frequency = lambda var_name: var_name in ('m:fe', 's:fe')
 is_current = lambda var_name: var_name in ('m:ir:bus1', 'm:iu:bus1', 'm:i:bus1')
 
 

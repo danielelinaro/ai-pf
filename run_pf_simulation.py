@@ -173,43 +173,36 @@ def run_sim(config_file, output_file=None, output_dir='.', output_file_prefix=''
                 for var_name in var_names:
                     res.AddVariable(element, var_name)
 
-    ### find the load that should be stochastic
-    stochastic_load_name = config['random_load_name']
+    ### find the load that should be time varying
+    variable_load_name = config['variable_load_name']
     found = False
     for load in loads:
-        if load.loc_name == stochastic_load_name:
-            stochastic_load = load
+        if load.loc_name == variable_load_name:
+            variable_load = load
             found = True
-            if verbose: print(f'Found load named "{stochastic_load_name}".')
+            if verbose: print(f'Found load named "{variable_load_name}".')
             break
     if not found:
-        raise Exception(f'Cannot find load named "{stochastic_load_name}"')
+        raise Exception(f'Cannot find load named "{variable_load_name}"')
     
     composite_model_name = 'Stochastic Load'
     found = False
     for composite_model in app.GetCalcRelevantObjects('*.ElmComp'):
         if composite_model.loc_name == composite_model_name:
-            stochastic_load_model = composite_model
+            variable_load_model = composite_model
             found = True
             if verbose: print(f'Found composite model named "{composite_model_name}".')
             break
     if not found:
         raise Exception(f'Cannot find composite model named "{composite_model_name}"')
     
-    for slot,net_element in zip(stochastic_load_model.pblk, stochastic_load_model.pelm):
+    for slot,net_element in zip(variable_load_model.pblk, variable_load_model.pelm):
         if slot.loc_name == 'load slot':
-            net_element = stochastic_load
-            if verbose: print(f'Set {stochastic_load_name} as stochastic load.')
+            net_element = variable_load
+            if verbose: print(f'Set {variable_load_name} as time-varying load.')
     
-    stochastic_load_filename = app.GetCalcRelevantObjects('*.ElmFile')[0].f_name
-    if verbose: print(f'The stochastic load file is "{stochastic_load_filename}".')
-
-    try:
-        rng_seed = config['seed']
-    except:
-        rs = RandomState(MT19937(SeedSequence(int(time_now()))))
-        rng_seed = rs.randint(0, 1000000)
-    rnd_state = RandomState(MT19937(SeedSequence(rng_seed)))
+    variable_load_filename = app.GetCalcRelevantObjects('*.ElmFile')[0].f_name
+    if verbose: print(f'The time-varying load file is "{variable_load_filename}".')
 
     if 'compensator_name' in config and config['compensator_name'] is not None:
         def cost(usetp, compensator):
@@ -227,34 +220,54 @@ def run_sim(config_file, output_file=None, output_dir='.', output_file_prefix=''
                   '"{}": {:.4f} p.u. (Q = {:.2e} MVA).'.format(
                       config['compensator_name'], optim_usetp,
                       generators[idx].GetAttribute('m:Qsum:bus1')))
-        
-    # OU parameters
-    alpha = config['OU']['alpha']
-    mu = config['OU']['mu']
-    c = config['OU']['c']
-
+    
     # simulation parameters
-    frand = config['frand']        # [Hz] sampling rate of the random signal
+    srate = config['srate']        # [Hz] sampling rate of the random signal
     decimation = config['decimation'] if 'decimation' in config else 1
     tstop = config['tstop'][-1]    # [s]  total simulation duration
-    dt = 1 / frand
+    dt = 1 / srate
     t = dt + np.r_[0 : tstop + dt/2 : dt]
     N_samples = t.size
 
-    # generate the dynamics of the stochastic load and save it to file
-    ou = OU_2(dt, alpha, mu, c, N_samples, rnd_state)
-    P0 = stochastic_load.plini
-    Q0 = stochastic_load.qlini
+    # a matrix containing time, P and Q of the time-varying load
     tPQ = np.zeros((N_samples,3))
+
+    if 'OU' in config:
+        try:
+            rng_seed = config['seed']
+        except:
+            rs = RandomState(MT19937(SeedSequence(int(time_now()))))
+            rng_seed = rs.randint(0, 1000000)
+        # OU parameters
+        alpha = config['OU']['alpha']
+        mu = config['OU']['mu']
+        c = config['OU']['c']
+        # generate the dynamics of the time-varying load and save it to file
+        var_load = OU_2(dt, alpha, mu, c, N_samples, RandomState(MT19937(SeedSequence(rng_seed))))
+    elif 'PWL' in config:
+        var_load = np.zeros(N_samples)
+        PWL = np.array(config['PWL'])
+        N_steps = PWL.shape[0]
+        for i in range(N_steps - 1):
+            idx = (t >= PWL[i, 0]) & (t < PWL[i+1, 0])
+            var_load[idx] = PWL[i, 1]
+        idx = t >= PWL[-1, 0]
+        var_load[idx] = PWL[-1, 1]
+    else:
+        var_load = np.zeros(N_samples)
+
+    P0 = variable_load.plini
+    Q0 = variable_load.qlini
     tPQ[:,0] = t
-    tPQ[:,1] = P0 + ou
+    tPQ[:,1] = P0 + var_load
     tPQ[:,2] = Q0
-    with open(stochastic_load_filename, 'w') as fid:
+
+    with open(variable_load_filename, 'w') as fid:
         fid.write('2\n\n')
         for row in tPQ:
             fid.write(f'{row[0]:.6f}\t{row[1]:.2f}\t{row[2]:.2f}\n\n')
 
-    N_random_loads = 1
+    N_variable_loads = 1
 
     generator_types = {gen.loc_name: gen.typ_id for gen in generators}
 
@@ -262,7 +275,8 @@ def run_sim(config_file, output_file=None, output_dir='.', output_file_prefix=''
                            filters=tables.Filters(complib='zlib', complevel=5))
     
     if 'parameters' not in fid.root:
-        class Parameters (BaseParameters):
+        
+        class BaseParameters2 (BaseParameters):
             generator_IDs  = tables.StringCol(32, shape=(N_generators,))
             S_nominal      = tables.Float64Col(shape=(N_generators,))
             bus_IDs        = tables.StringCol(32, shape=(N_buses,))
@@ -272,20 +286,24 @@ def run_sim(config_file, output_file=None, output_dir='.', output_file_prefix=''
             V_rating_lines = tables.Float64Col(shape=(N_lines,))
             P_rating_loads = tables.Float64Col(shape=(N_loads,))
             Q_rating_loads = tables.Float64Col(shape=(N_loads,))
-            rnd_load_names = tables.StringCol(32, shape=(N_random_loads,))
+            var_load_names = tables.StringCol(32, shape=(N_variable_loads,))
             inertia        = tables.Float64Col(shape=(N_generators,N_blocks))
-            alpha          = tables.Float64Col(shape=(N_random_loads,))
-            mu             = tables.Float64Col(shape=(N_random_loads,))
-            c              = tables.Float64Col(shape=(N_random_loads,))
             tstop          = tables.Float64Col(shape=(N_blocks,))
-    
+
+        if 'OU' in config:
+            class Parameters (BaseParameters2):
+                alpha = tables.Float64Col(shape=(N_variable_loads,))
+                mu    = tables.Float64Col(shape=(N_variable_loads,))
+                c     = tables.Float64Col(shape=(N_variable_loads,))
+        elif 'PWL' in config:
+            m,n = PWL.shape
+            class Parameters (BaseParameters2):
+                PWL   = tables.Float64Col(shape=(m,n))
+
         tbl = fid.create_table(fid.root, 'parameters', Parameters, 'parameters')
         params = tbl.row
         params['tstop']          = config['tstop']
-        params['alpha']          = [alpha]
-        params['mu']             = [mu]
-        params['c']              = [c]
-        params['frand']          = frand
+        params['srate']          = srate
         params['F0']             = nominal_frequency
         params['inertia']        = inertia_values
         params['generator_IDs']  = generator_IDs
@@ -297,19 +315,26 @@ def run_sim(config_file, output_file=None, output_dir='.', output_file_prefix=''
         params['V_rating_lines'] = [Vrating['lines'][ID] for ID in line_IDs]
         params['P_rating_loads'] = [Prating['loads']['P'][ID] for ID in load_IDs]
         params['Q_rating_loads'] = [Prating['loads']['Q'][ID] for ID in load_IDs]
-        params['rnd_load_names'] = [stochastic_load_name]
+        params['var_load_names'] = [variable_load_name]
+        if 'OU' in config:
+            params['alpha']      = [alpha]
+            params['mu']         = [mu]
+            params['c']          = [c]
+        elif 'PWL' in config:
+            params['PWL']        = PWL
         params.append()
         tbl.flush()
 
-    if 'rng_seeds' not in fid.root:
-        fid.create_earray(fid.root, 'rng_seeds', atom=tables.Int64Atom(), shape=(0, N_random_loads))
-    fid.root['rng_seeds'].append(np.array([rng_seed], ndmin=2))
+    if 'OU' in config:
+        if 'rng_seeds' not in fid.root:
+            fid.create_earray(fid.root, 'rng_seeds', atom=tables.Int64Atom(), shape=(0, N_variable_loads))
+        fid.root['rng_seeds'].append(np.array([rng_seed], ndmin=2))
 
     atom = tables.Float64Atom()
 
-    if 'save_OU' in config and config['save_OU']:
-        random_load_bus = int(stochastic_load_name.split(' ')[1])
-        write_trace_to_file(ou[::decimation], fid, f'noise_bus_{random_load_bus}', atom)
+    if 'save_var_load' in config and config['save_var_load']:
+        variable_load_bus = int(variable_load_name.split(' ')[1])
+        write_trace_to_file(var_load[::decimation], fid, f'var_load_bus_{variable_load_bus}', atom)
 
     ### compute the initial condition of the simulation
     inc = app.GetFromStudyCase('ComInc')

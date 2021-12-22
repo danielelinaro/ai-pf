@@ -1,0 +1,42 @@
+{
+    "project_name": "\\Terna_Inerzia\\IEEE39_part_rnd_load",
+    "study_case_name": "5. Transient Stability",
+    "inertia": {
+    	"G 08": [3.47]
+    },
+    "variable_load_name": "Load 03",
+	"PWL": [
+		[0,   0],
+		[100, 5],
+		[250, 0]
+	],
+    "save_load": true,
+    "srate": 200.0,
+    "decimation": 20,
+    "correct_voltages_and_currents": true,
+    "use_physical_units": true,
+    "tstop": [400.0],
+    "vars_map" : {
+    	"time": "time",
+    	"generators": [
+        	{"name": "G 08", "vars_in": ["c:fi", "s:ve", "s:fe", "s:phi", "m:P:bus1", "m:Q:bus1"],
+			"vars_out": ["delta_ref", "V_exc", "f_out", "phi", "Pe_G08", "Qe_G08"]}
+    	],
+    	"buses": [
+        	{"name": "Bus 02", "vars_in": ["m:fe", "m:ur", "m:ui"],
+        	 "vars_out": ["omegael_bus2", "Vd_bus2", "Vq_bus2"]},
+        	{"name": "Bus 03", "vars_in": ["m:fe", "m:ur", "m:ui"],
+        	 "vars_out": ["omegael_bus3", "Vd_bus3", "Vq_bus3"]},
+        	{"name": "Bus 25", "vars_in": ["m:fe", "m:ur", "m:ui"],
+        	 "vars_out": ["omegael_bus25", "Vd_bus25", "Vq_bus25"]},
+        	{"name": "Bus 37", "vars_in": ["m:fe", "m:ur", "m:ui"],
+         	 "vars_out": ["omegael_bus37", "Vd_bus37", "Vq_bus37"]}
+    	],
+    	"lines": [
+        	{"name": "Line 02 - 03", "vars_in": ["m:P:bus1", "m:Q:bus1", "m:I:bus1", "m:ir:bus1", "m:ii:bus1"],
+        	 "vars_out": ["Pe_line_2_3", "Qe_line_2_3", "I_line_2_3", "Id_line_2_3", "Iq_line_2_3"]},
+        	{"name": "Line 02 - 25", "vars_in": ["m:P:bus1", "m:Q:bus1", "m:I:bus1", "m:ir:bus1", "m:ii:bus1"],
+        	 "vars_out": ["Pe_line_2_25", "Qe_line_2_25", "I_line_2_25", "Id_line_2_25", "Iq_line_2_25"]}
+    	]
+	}
+}
