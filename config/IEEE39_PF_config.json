@@ -17,10 +17,10 @@
     "OU": {
     	"alpha": 0.5,
     	"mu": 0.0,
-    	"c": 0.5
+    	"c": 1.61
     },
 	"seed": 100,
-    "save_load": true,
+    "save_var_load": true,
     "srate": 200.0,
     "decimation": 20,
     "correct_voltages_and_currents": true,

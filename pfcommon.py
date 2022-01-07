@@ -112,10 +112,10 @@ class PowerGenerator (object):
             print(f'{self.name} is the slack generator.')
         if self.rotor_type == 0:
             # salient pole
-            self.type_id = 3
+            self.type_id = 52
         elif self.rotor_type == 1:
             # round rotor
-            self.type_id = 4
+            self.type_id = 6
         else:
             raise Exception('Unknown rotor type: "{}"'.format(self.rotor_type))
         self.bus_id = int(re.findall('\d+', self.terminals[0])[0])
@@ -139,10 +139,10 @@ class PowerGenerator (object):
             .format(self.vg, self.prating, self.vrating) + \
             'qmax={:g} qmin={:g} pmax={:g} pmin={:g} \\\n\t\t' \
             .format(self.qmax, self.qmin, self.pmax, self.pmin) + \
-            'xdp={:g} xd={:g} xq={:g} ra={:g} \\\n\t\t' \
-            .format(self.xdp, self.xd, self.xq, self.ra) + \
-            'td0p={:g} xl={:g} h={:g} d={:g} ' \
-            .format(self.td0p, self.xl, self.h, self.d)
+            'xdp={:g} xd={:g} xq={:g} xds={:g} xqs={:g} ra={:g} \\\n\t\t' \
+            .format(self.xdp, self.xd, self.xq, self.xds, self.xqs, self.ra) + \
+            'td0p={:g} td0s={:g} tq0s={:g} xl={:g} h={:g} d={:g} ' \
+            .format(self.td0p, self.td0s, self.tq0s, self.xl, self.h, self.d)
         if self.rotor_type == 1:
             # round rotor
             s+= 'xqp={:g} tq0p={:g}'.format(self.xqp, self.tq0p)
