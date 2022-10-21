@@ -8,8 +8,8 @@ if __name__ == '__main__':
         print(prefix + '[' + ', '.join(map(lambda x: f'{x:.3f}', lst)) + ']')
 
     area_ID = 1
-    dH = 0.1
-    H_min, H_max, H_step = 3, 6, 0.3
+    dH = 0.2
+    H_min, H_max, H_step = 3, 6.3, 0.3
     H_G2, H_G3 = [], []
     for target_H in np.r_[H_min : H_max : H_step] + dH:
         tmp = compute_generator_inertias(target_H, area_ID, verbose=False)

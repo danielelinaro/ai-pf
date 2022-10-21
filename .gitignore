@@ -117,3 +117,4 @@ PF/Stochastic_load.txt
 *.pdf
 *.pkl
 *.h5
+*.inc

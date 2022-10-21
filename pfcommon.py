@@ -3,8 +3,8 @@ import re
 import tables
 import numpy as np
 
-__all__ = ['BaseParameters', 'AutomaticVoltageRegulator', 'TurbineGovernor', 'PowerLoad',
-           'PowerGenerator', 'PowerPlant', 'PowerBus', 'PowerTransformer', 'PowerLine',
+__all__ = ['BaseParameters', 'AutomaticVoltageRegulator', 'TurbineGovernor', 'PowerLoad', 'PowerGenerator',
+           'PowerPlant', 'PowerBus', 'PowerTransformer', 'PowerLine', 'Shunt', 'SeriesCapacitor', 'CommonImpedance',
            'get_simulation_variables', 'get_simulation_time', 'get_simulation_dt',
            'get_ID', 'get_line_bus_IDs', 'normalize', 'OU', 'OU_2', 'run_load_flow',
            'print_load_flow', 'correct_traces', 'find_element_by_name',
@@ -21,7 +21,7 @@ def _bus_name_to_terminal_name(bus):
     return 'bus{}'.format(int(re.findall('\d+', bus)[0]))
 
 def _read_element_parameters(element, par_names=None, type_par_names=None, bus_names=['bus1']):
-    data = {'name': element.loc_name}
+    data = {'name': re.sub('^[0-9]*', '', element.loc_name).replace(' ','').replace('-','')}
     if bus_names is not None and len(bus_names) > 0:
         data['terminals'] = [element.GetAttribute(bus_name).cterm.loc_name
                              for bus_name in bus_names]
@@ -51,7 +51,7 @@ class AutomaticVoltageRegulator (object):
 
     @property
     def fmt(self):
-        s = self.name.replace(' ', '') + ' {} {} poweravr type=' + str(self.type_ID)
+        s = self.name + ' {} {} poweravr type=' + str(self.type_ID)
         s += ' vrating={:e} \\\n\t\t'.format(self.vrating)
         for i,par_name in enumerate(self.par_names.values()):
             s += '{}={} '.format(par_name, self.__getattribute__(par_name))
@@ -87,7 +87,7 @@ class TurbineGovernor (object):
 
     @property
     def fmt(self):
-        s = self.name.replace(' ', '') + ' {} {} '
+        s = self.name + ' {} {} '
         s += 'powertg type={} \\\n\t\t'.format(self.type_ID)
         for i,par_name in enumerate(self.par_names.values()):
             s += '{}={} '.format(par_name, self.__getattribute__(par_name))
@@ -127,7 +127,7 @@ class PowerGenerator (object):
 
     @property
     def fmt(self):
-        s = '{} {} '.format(self.name.replace(' ', ''), \
+        s = '{} {} '.format(self.name, \
             _bus_name_to_terminal_name(self.terminals[0])) + \
             '{} {} ' + 'omega{} powergenerator type={} qlimits=no phtype=1 \\\n\t\t' \
             .format(self.bus_id, self.type_id)
@@ -201,7 +201,7 @@ class PowerLoad (object):
             
     def __str__(self):
         return '{} {:5s} powerload utype=1 pc={:.6e} qc={:.6e} vrating={:.6e}' \
-                .format(self.name.replace(' ', ''),
+                .format(self.name,
                         _bus_name_to_terminal_name(self.terminals[0]),
                         self.pc, self.qc, self.vrating)
 
@@ -219,13 +219,61 @@ class PowerLine (object):
         self.x *= self.length
         self.b *= self.length * 1e-6
         self.vrating *= 1e3
+        self.utype = 1
 
     def __str__(self):
-        return '{} {:5s} {:5s} powerline utype=1 r={:.6e} x={:.6e} b={:.6e} vrating={:.6e}' \
-                .format(self.name.replace(' ', '').replace('-',''),
+        return '{} {:5s} {:5s} powerline utype={:d} r={:.6e} x={:.6e} b={:.6e} vrating={:.6e}' \
+                .format(self.name,
                        _bus_name_to_terminal_name(self.terminals[0]),
                        _bus_name_to_terminal_name(self.terminals[1]),
-                       self.r, self.x, self.b, self.vrating)
+                       self.utype, self.r, self.x, self.b, self.vrating)
+
+class SeriesCapacitor (PowerLine):
+    def __init__(self, capacitor):
+        par_names = {'ucn': 'vrating', 'xcap': 'x'}
+        data = _read_element_parameters(capacitor, par_names, bus_names=['bus1', 'bus2'])
+        for k,v in data.items():
+            self.__setattr__(k, v)        
+        self.r = 0.
+        self.b = 0.
+        self.x = -self.x
+        self.vrating *= 1e3 
+        self.utype = 1
+
+class Shunt (object):
+    def __init__(self, shunt):
+        par_names = {'qcapn': 'q', 'ushnm': 'vrating'}
+        data = _read_element_parameters(shunt, par_names)
+        for k,v in data.items():
+            self.__setattr__(k, v)
+        self.vrating *= 1e3
+        self.utype = 1
+
+    def __str__(self):
+        return '{} {:5s} powershunt utype={:d} q={:.6e} vrating={:.6e}' \
+                .format(self.name,
+                       _bus_name_to_terminal_name(self.terminals[0]),
+                       self.utype, self.q, self.vrating)
+
+class CommonImpedance (object):
+    def __init__(self, impedance):
+        par_names = {'Sn': 'prating', 'r_pu': 'r', 'x_pu': 'x'}
+        data = _read_element_parameters(impedance, par_names, bus_names=['bus1', 'bus2'])
+        for k,v in data.items():
+            self.__setattr__(k, v)
+        if impedance.bus1.cterm.uknom != impedance.bus2.cterm.uknom:
+            print(f'Common impedance {self.name}: ' + 
+                  f'bus1.vrating = {impedance.bus1.cterm.uknom} kV, ' + 
+                  f'bus2.vrating = {impedance.bus2.cterm.uknom} kV')
+        self.vrating = impedance.bus1.cterm.uknom * 1e3
+        self.utype = 0
+
+    def __str__(self):
+        return '{} {:5s} {:5s} powerline utype={:d} r={:.6e} x={:.6e} prating={:.6e} vrating={:.6e}' \
+                .format(self.name,
+                       _bus_name_to_terminal_name(self.terminals[0]),
+                       _bus_name_to_terminal_name(self.terminals[1]),
+                       self.utype, self.r, self.x, self.prating, self.vrating)
 
 class PowerTransformer (object):
     def __init__(self, transformer):
@@ -247,7 +295,7 @@ class PowerTransformer (object):
     def __str__(self):
         return ('{} {:5s} {:5s} powertransformer r={:.6e} x={:.6e} ' +
                 'a={:.6e} kt={:.6e} prating={:.6e} vrating={:.6e}') \
-                .format(self.name.replace(' ', '').replace('-',''),
+                .format(self.name,
                        _bus_name_to_terminal_name(self.terminals[0]),
                        _bus_name_to_terminal_name(self.terminals[1]),
                        self.r, self.x, self.a, self.kt,
@@ -265,10 +313,8 @@ class PowerBus (object):
 
     def __str__(self):
         return '{} {:5s} powerbus vb={:.6e} v0={:.6e} theta0={:.6e}' \
-                .format(self.name.replace(' ', ''),
-                        self.terminal, self.vb, self.v0, self.theta0)
+                .format(self.name, self.terminal, self.vb, self.v0, self.theta0)
 
-    
 get_objects = lambda app, pattern: [obj for obj in app.GetCalcRelevantObjects(pattern) if not obj.outserv]
 
 
