@@ -6,8 +6,8 @@ import numpy as np
 __all__ = ['BaseParameters', 'AutomaticVoltageRegulator', 'TurbineGovernor', 'PowerLoad', 'PowerGenerator',
            'PowerPlant', 'PowerBus', 'PowerTransformer', 'PowerLine', 'Shunt', 'SeriesCapacitor', 'CommonImpedance',
            'get_simulation_variables', 'get_simulation_time', 'get_simulation_dt',
-           'get_ID', 'get_line_bus_IDs', 'normalize', 'OU', 'OU_2', 'run_load_flow',
-           'print_load_flow', 'correct_traces', 'find_element_by_name',
+           'get_ID', 'get_line_bus_IDs', 'normalize', 'OU', 'OU_2', 'run_power_flow',
+           'print_power_flow', 'correct_traces', 'find_element_by_name',
            'is_voltage', 'is_power', 'is_frequency', 'is_current', 
            'compute_generator_inertias', 'sort_objects_by_name', 'get_objects']
 
@@ -242,18 +242,21 @@ class SeriesCapacitor (PowerLine):
 
 class Shunt (object):
     def __init__(self, shunt):
-        par_names = {'qcapn': 'q', 'ushnm': 'vrating'}
+        par_names = {'qcapn': 'q', 'ushnm': 'vrating', 'bcap': 'b', 'gparac': 'g'}
         data = _read_element_parameters(shunt, par_names)
         for k,v in data.items():
             self.__setattr__(k, v)
+        self.q *= 1e6
         self.vrating *= 1e3
+        self.b *= 1e-6
+        self.g *= 1e-6
         self.utype = 1
 
     def __str__(self):
-        return '{} {:5s} powershunt utype={:d} q={:.6e} vrating={:.6e}' \
+        return '{} {:5s} powershunt utype={:d} b={:.6e} g={:.6e} vrating={:.6e}' \
                 .format(self.name,
                        _bus_name_to_terminal_name(self.terminals[0]),
-                       self.utype, self.q, self.vrating)
+                       self.utype, self.b, self.g, self.vrating)
 
 class CommonImpedance (object):
     def __init__(self, impedance):
@@ -276,12 +279,17 @@ class CommonImpedance (object):
                        self.utype, self.r, self.x, self.prating, self.vrating)
 
 class PowerTransformer (object):
-    def __init__(self, transformer):
+    def __init__(self, transformer, voltages_from='type'):
         par_names = {'ntnum': 'num', 'nntap': 'nntap', 't:dutap': 'tappc'}
-        type_par_names = {'r1pu': 'r', 'x1pu': 'x', 'strn': 'prating',
-                  'utrn_h': 'vh', 'utrn_l': 'vl'}
+        type_par_names = {'r1pu': 'r', 'x1pu': 'x', 'strn': 'prating'}
+        if voltages_from == 'type':
+            type_par_names['utrn_h'] = 'vh'
+            type_par_names['utrn_l'] = 'vl'
         bus_names = ['buslv', 'bushv']
         data = _read_element_parameters(transformer, par_names, type_par_names, bus_names)
+        if voltages_from == 'bus':
+            data['vl'] = transformer.buslv.cterm.uknom
+            data['vh'] = transformer.bushv.cterm.uknom
         for k,v in data.items():
             self.__setattr__(k, v)
         if self.num > 1:
@@ -517,13 +525,13 @@ def OU_2(dt, alpha, mu, c, N, random_state = None):
     return ou
 
 
-def run_load_flow(app, project_folder, study_case_name, generators, loads, buses,
+def run_power_flow(app, project_folder, study_case_name, generators, loads, buses,
                   lines, transformers=None, verbose=False):
     study_case = project_folder.GetContents(study_case_name)[0]
     study_case.Activate()
     if verbose: print(f'Successfully activated study case {study_case_name}.')
-    load_flow = app.GetFromStudyCase('ComLdf')
-    err = load_flow.Execute()
+    power_flow = app.GetFromStudyCase('ComLdf')
+    err = power_flow.Execute()
     if err:
         raise Exception('Cannot run load flow')
     if verbose: print('Successfully run load flow.')
@@ -606,14 +614,19 @@ def run_load_flow(app, project_folder, study_case_name, generators, loads, buses
     return results
 
 
-def print_load_flow(results):
+def print_power_flow(results):
     print('\n===== Generators =====')
     for name in sorted(list(results['generators'].keys())):
         data = results['generators'][name]
         if name not in ('Ptot','Qtot'):
             print(f'{name}: P = {data["P"]:7.2f} MW, Q = {data["Q"]:6.2f} MVAR, ' + 
                   f'I = {data["I"]:6.3f} kA, V = {data["V"]:6.3f} kV.')
-    print(f'Total P = {results["generators"]["Ptot"]*1e-3:7.4f} GW, total Q = {results["generators"]["Qtot"]*1e-3:7.4f} GVAR')
+    P, Q = results["generators"]["Ptot"], results["generators"]["Qtot"]
+    if P > 1e4:
+        coeff, unit = 1e-3, 'G'
+    else:
+        coeff, unit = 1.0, 'M'
+    print(f'Total P = {P*coeff:7.4f} {unit}W, total Q = {Q*coeff:7.4f} {unit}VAR')
 
     print('\n======= Loads ========')
     for name in sorted(list(results['loads'].keys())):
@@ -621,11 +634,30 @@ def print_load_flow(results):
         if name not in ('Ptot','Qtot'):
             print(f'{name}: P = {data["P"]:7.2f} MW, Q = {data["Q"]:6.2f} MVAR, ' + 
                   f'I = {data["I"]:6.3f} kA, V = {data["V"]:8.3f} kV.')
-    print(f'Total P = {results["loads"]["Ptot"]*1e-3:7.4f} GW, total Q = {results["loads"]["Qtot"]*1e-3:7.4f} GVAR')
+    print(f'Total P = {results["loads"]["Ptot"]*coeff:7.4f} {unit}W, total Q = {results["loads"]["Qtot"]*coeff:7.4f} {unit}VAR')
     
+    print('\n===== Transformers =====')
+    for name in sorted(list(results['transformers'].keys())):
+        data = results['transformers'][name]
+        if name not in ('Ptot','Qtot'):
+            P = data['P_bushv'] + data['P_buslv']
+            Q = data['Q_bushv'] + data['Q_buslv']
+            print(f'{name}: P = {P:7.2f} MW, Q = {Q:7.2f} MVA')
+    P = results['transformers']['Ptot']['bushv'] + results['transformers']['Ptot']['buslv']
+    Q = results['transformers']['Qtot']['bushv'] + results['transformers']['Qtot']['buslv']
+    print(f'Total P = {P*coeff:7.2f} {unit}W, total Q = {Q*coeff:7.2f} {unit}VA.')
+
+    print('\n======= Lines =======')
+    for name in sorted(list(results['lines'].keys())):
+        data = results['lines'][name]
+        if name not in ('Ptot','Qtot'):
+            print(f'{name}: P = {data["P_bus1"]:7.2f} MW, Q bus1 = {data["Q_bus1"]:7.2f} MVA ' + 
+                  f'Q bus2 = {data["Q_bus2"]:7.2f} MVA.')
+    print(f'Total P = {results["lines"]["Ptot"]["bus1"]*coeff:7.2f} {unit}W, ' + 
+          f'total Q = {(results["lines"]["Qtot"]["bus1"]-results["lines"]["Qtot"]["bus2"])*coeff:7.2f} {unit}VA.')
+
     print('\n======= Buses ========')
     for name in sorted(list(results['buses'].keys())):
         data = results['buses'][name]
         print(f'{name}: voltage = {data["voltage"]:5.3f} pu, V = {data["Vl"]:7.3f} kV, ' + \
-              f'Pflow = {data["P"]["flow"]:7.2f} MW, Qflow = {data["Q"]["flow"]:7.2f} MVA.')
-
+              f'Pflow = {data["P"]["flow"]*coeff:7.2f} {unit}W, Qflow = {data["Q"]["flow"]*coeff:7.2f} {unit}VA.')
