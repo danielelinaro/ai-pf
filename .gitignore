@@ -118,3 +118,6 @@ PF/Stochastic_load.txt
 *.pkl
 *.h5
 *.inc
+*.dat
+Notebooks/IEEE39_graph.txt
+PF/Sinusoidal_load.txt
