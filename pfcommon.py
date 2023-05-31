@@ -408,7 +408,16 @@ def correct_traces(xre, xim, delta):
     return mod * np.cos(angle), mod * np.sin(angle)
 
 
-def get_simulation_variables(res, var_name, elements=None, elements_name=None, app=None, decimation=1, full_output=False):
+
+def _compute_samples_interval(res, interval, dt):
+    n_samples = res.GetNumberOfRows()
+    start = 0 if interval[0] == 0 else int(interval[0] / dt)
+    stop = n_samples if interval[1] is None else int(np.ceil(interval[1] / dt))
+    return start,stop
+
+def get_simulation_variables(res, var_name, interval=(0,None), dt=None,
+                             elements=None, elements_name=None, app=None,
+                             decimation=1, full_output=False):
     if elements is None:
         if elements_name is None:
             raise Exception('You must provide one of "elements" or "elements_name"')
@@ -416,20 +425,22 @@ def get_simulation_variables(res, var_name, elements=None, elements_name=None, a
             raise Exception('You must provide "app" if "elements_name" is passed')
         full_output = True
         elements = app.GetCalcRelevantObjects(elements_name)
-    n_samples = res.GetNumberOfRows()
+    start,stop = _compute_samples_interval(res, interval, dt)
+    n_samples = stop - start
     variables = np.zeros((int(np.ceil(n_samples / decimation)), len(elements)))
     for i,element in enumerate(elements):
         col = res.FindColumn(element, var_name)
         if col < 0:
-            raise Exception(f'Variable {var_name} is not available.')
-        variables[:,i] = np.array([res.GetValue(j, col)[1] for j in range(0, n_samples, decimation)])
+            raise Exception(f'Variable {element.loc_name}:{var_name} is not available.')
+        variables[:,i] = np.array([res.GetValue(j,col)[1] for j in range(start, stop, decimation)])
     if full_output:
         return np.squeeze(variables), elements
     return np.squeeze(variables)
 
 
-get_simulation_time = lambda res, decimation=1: \
-    np.array([res.GetValue(i, -1)[1] for i in range(0, res.GetNumberOfRows(), decimation)])
+def get_simulation_time(res, interval=(0,None), dt=None, decimation=1):
+    start,stop = _compute_samples_interval(res, interval, dt)
+    return np.array([res.GetValue(i,-1)[1] for i in range(start, stop, decimation)])
 
 
 get_simulation_dt = lambda res: np.diff([res.GetValue(i, -1)[1] for i in range(2)])[0]
