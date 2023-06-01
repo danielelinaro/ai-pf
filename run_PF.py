@@ -5,6 +5,7 @@ Created on Tue May 30 11:54:00 2023
 @author: Daniele Linaro
 """
 
+import re
 import os
 import sys
 import json
@@ -12,7 +13,7 @@ from time import time as TIME
 import numpy as np
 
 import powerfactory as pf
-from pfcommon import get_simulation_time, get_simulation_variables
+from pfcommon import OU, get_simulation_time, get_simulation_variables
 
 
 __all__ = ['compute_fourier_coeffs']
@@ -237,17 +238,18 @@ def _send_email(subject, content, recipients=['daniele.linaro@polimi.it']):
 
 
 ############################################################
-###                   AC ANALYSIS                        ###
+###                     CLASSES                          ###
 ############################################################
 
-class SinusoidalLoad (object):
-    def __init__(self, load, grid, library_name, user_models_name, frame_name, outdir='.'):
+
+class TimeVaryingLoad(object):
+    def __init__(self, load, app, grid, library_name, user_models_name, frame_name, outdir='.'):
         self.load = load
+        self.app = app
         self.grid = grid
         self.meas_filepath = os.path.join(os.path.abspath(outdir),
                                           load.loc_name.replace(' ', '_') + '_PQ.dat')
-
-        library = _find_in_contents(PF_APP.GetActiveProject(), library_name)
+        library = _find_in_contents(self.app.GetActiveProject(), library_name)
         if library is None:
             raise Exception('Cannot locate library')
         user_models = _find_in_contents(library, user_models_name)
@@ -256,33 +258,207 @@ class SinusoidalLoad (object):
         self.frame = _find_in_contents(user_models, frame_name)
         if self.frame is None:
             raise Exception('Cannot locate time-varying load frame')
-
         ld_name = load.loc_name.replace(' ', '_')
         self.meas_file = self.grid.CreateObject('ElmFile', 'meas_' + ld_name)
         self.meas_file.f_name = self.meas_filepath
-        self.comp_model = self.grid.CreateObject('ElmComp', 'sinusoidal_' + ld_name)
+        self.comp_model = self.grid.CreateObject('ElmComp', 'time_dep_' + ld_name)
         self.comp_model.typ_id = self.frame
         self.comp_model.SetAttribute("pelm", [self.meas_file, self.load])
 
-    def write_load_file(self, n_samples, dt, F, P, Q, verbosity_level=0):
-        tPQ = np.zeros((n_samples, 3))
-        tPQ[:,0] = dt * np.arange(n_samples)
-        tPQ[:,1] = P[0] + P[1] * np.sin(2*np.pi*F*tPQ[:,0])
-        tPQ[:,2] = Q[0] + Q[1] * np.sin(2*np.pi*F*tPQ[:,0])
-        if verbosity_level > 1:
-            sys.stdout.write(f'Writing sinusoidal input to file (tend = {n_samples*dt:.2f} s)... ')
+    @classmethod
+    def _write(cls, filename, tPQ, verbose=False):
+        if verbose:
+            sys.stdout.write(f'Writing load values to `{filename}`... ')
             sys.stdout.flush()
-        with open(self.meas_filepath, 'w') as fid:
+        with open(filename, 'w') as fid:
             fid.write('2\n')
             for row in tPQ:
                 fid.write(f'{row[0]:.6f}\t{row[1]:.2f}\t{row[2]:.2f}\n')
-        if verbosity_level > 1: sys.stdout.write('done.\n')
+        if verbose:
+            sys.stdout.write('done.\n')
 
-    def clean(self):
-        print(f'Deleting measurement file `{self.meas_file.loc_name}`...')
+    def write_to_file(self, dt, P, Q, verbose=False):
+        n_samples = P.size
+        tPQ = np.zeros((n_samples, 3))
+        tPQ[:,0] = dt * np.arange(n_samples)
+        tPQ[:,1] = P
+        tPQ[:,2] = Q
+        TimeVaryingLoad._write(self.meas_filepath, tPQ, verbose)
+
+    def clean(self, verbose=False):
+        if verbose: print(f'Deleting measurement file `{self.meas_file.loc_name}`...')
         self.meas_file.Delete()
-        print(f'Deleting composite model `{self.comp_model.loc_name}`...')
+        if verbose: print(f'Deleting composite model `{self.comp_model.loc_name}`...')
         self.comp_model.Delete()
+
+
+class SinusoidalLoad(TimeVaryingLoad):
+    def __init__(self, load, app, grid, library_name, user_models_name, frame_name, outdir='.'):
+        super().__init__(load, app, grid, library_name, user_models_name, frame_name, outdir)
+
+    def write_to_file(self, dt, P, Q, F, n_samples, verbose=False):
+        t = dt * np.arange(n_samples)
+        super().write_to_file(dt, P[0] + P[1] * np.sin(2*np.pi*F*t),
+                              Q[0] + Q[1] * np.sin(2*np.pi*F*t), verbose)
+
+class NormalStochasticLoad(TimeVaryingLoad):
+    def __init__(self, load, app, grid, library_name, user_models_name, frame_name, outdir='.'):
+        super().__init__(load, app, grid, library_name, user_models_name, frame_name, outdir)
+
+    def write_to_file(self, dt, P, Q, n_samples, verbose=False):
+        super().write_to_file(dt,
+                              P[0] + P[1] * np.random.normal(size=n_samples),
+                              Q[0] + Q[1] * np.random.normal(size=n_samples),
+                              verbose)
+
+class OULoad(TimeVaryingLoad):
+    def __init__(self, load, app, grid, library_name, user_models_name, frame_name, outdir='.'):
+        super().__init__(load, app, grid, library_name, user_models_name, frame_name, outdir)
+
+    def write_to_file(self, dt, P, Q, n_samples, tau, verbose=False):
+        if np.isscalar(tau):
+            tau = [tau, tau]
+        super().write_to_file(dt, OU(dt, P[0], P[1], tau[0], n_samples),
+                              OU(dt, Q[0], Q[1], tau[1], n_samples), verbose)
+
+
+############################################################
+###                    TRANSIENT                         ###
+############################################################
+
+def run_tran():
+    
+    def usage(exit_code=None):
+        print(f'usage: {progname} tran [-f | --force] [-o | --outfile <filename>] [-v | --verbose <level>] config_file')
+        if exit_code is not None:
+            sys.exit(exit_code)
+            
+    force = False
+    outfile = None
+    verbosity_level = 1
+
+    i = 2
+    n_args = len(sys.argv)
+    while i < n_args:
+        arg = sys.argv[i]
+        if arg in ('-h','--help'):
+            usage(0)
+        elif arg in ('-f', '--force'):
+            force = True
+        elif arg in ('-o', '--outfile'):
+            i += 1
+            outfile = sys.argv[i]
+        elif arg in ('-v', '--verbose'):
+            i += 1
+            verbosity_level = int(sys.argv[i])
+        elif arg[0] == '-':
+            print(f'{progname}: unknown option `{arg}`')
+            sys.exit(1)
+        else:
+            break
+        i += 1
+    
+    if i == n_args:
+        print('You must specify a configuration file')
+        sys.exit(1)
+    elif i == n_args-1:
+        config_file = sys.argv[i]
+    else:
+        print('Arguments after configuration file name are not allowed')
+        sys.exit(1)
+
+    if not os.path.isfile(config_file):
+        print('{}: {}: no such file.'.format(progname, config_file))
+        sys.exit(1)
+    config = json.load(open(config_file, 'r'))
+
+    project_name = config['project_name']
+    
+    if outfile is None:
+        outfile = '{}_tran.npz'.format(project_name)
+
+    if os.path.isfile(outfile) and not force:
+        print(f'{progname}: output file `{outfile}` exists: use -f to overwrite.')
+        sys.exit(1)
+
+    project_name = '\\Terna_Inerzia\\' + project_name
+    project = _activate_project(project_name, verbosity_level)
+    _print_network_info()
+    out_of_service_objects = _turn_off_objects(config['out_of_service'],
+                                               verbosity_level)
+
+    def check_matches(load, patterns, limits):
+        if all([re.match(pattern, load.loc_name) is None for pattern in patterns]):
+            return False
+        p,q = np.abs(load.plini), np.abs(load.qlini)
+        if (p >= limits['P'][0] and p <= limits['P'][1]) or \
+            (q >= limits['Q'][0] and q <= limits['Q'][1]):
+               return True
+        return False
+
+    loads = list(filter(lambda load: check_matches(load,
+                                                   config['stoch_loads'],
+                                                   config['limits']),
+                        _get_objects('*.ElmLod')))
+    if verbosity_level > 0:
+        print(f'{len(loads)} loads match the name pattern and have either P or Q within the limits.')
+        if verbosity_level > 1:
+            print('{:^5s} {:<30s} {:^10s} {:^10s}'.format('#', 'Name', 'P [MW]', 'Q [MVAr]'))
+            print('=' * 58)
+            for i,load in enumerate(loads):
+                print('[{:3d}] {:30s} {:10.3f} {:10.3f}'.format(i+1, load.loc_name, load.plini, load.qlini))
+
+    found = False
+    for grid in PF_APP.GetCalcRelevantObjects('*.ElmNet'):
+        if grid.loc_name == config['grid_name']:
+            if verbosity_level > 0:
+                print('Found grid named `{}`.'.format(config['grid_name']))
+            found = True
+            break
+    if not found:
+        print('Cannot find a grid named `{}`.'.format(config['grid_name']))
+        sys.exit(1)
+
+    stoch_loads = [OULoad(load, PF_APP, grid, config['library_name'],
+                          config['user_models_name'], config['frame_name'],
+                          outdir='stoch_loads')
+                   for load in loads]
+
+    dt = config['dt']
+    tstop = config['tstop']
+    n_samples = int(np.ceil(tstop / dt)) + 1
+    tau = [config['tau']['P'], config['tau']['Q']]
+    for load,stoch_load in zip(loads, stoch_loads):
+        P = load.plini, load.plini*config['sigma']['P']
+        Q = load.qlini, load.qlini*config['sigma']['Q']
+        stoch_load.write_to_file(dt, P, Q, n_samples, tau, verbosity_level>1)
+
+    inc = _IC(dt, verbosity_level)
+    res, _ = _set_vars_to_save(config['record'], verbosity_level)
+    sim,dur,err = _tran(tstop, verbosity_level)
+    interval = (0, None)
+    time,data = _get_data(res, config['record'], interval, dt, verbosity_level)
+    attributes, device_names = _get_attributes(config['record'], verbosity_level)
+    for load in stoch_loads:
+        load.clean(verbosity_level>1)
+    _turn_on_objects(out_of_service_objects)
+
+    blob = {'config': config,
+            'time': np.array(time, dtype=object),
+            'data': data,
+            'attributes': attributes,
+            'device_names': device_names}
+
+    np.savez_compressed(outfile, **blob)
+
+    ### send an email to let the recipients know that the job has finished
+    # with open(config_file, 'r') as fid:
+    #     _send_email(subject=f'PowerFactory job finished - data saved to {outfile}',
+    #                 content=fid.read())
+
+############################################################
+###                   AC ANALYSIS                        ###
+############################################################
 
 
 def run_AC_analysis():
@@ -373,7 +549,7 @@ def run_AC_analysis():
     else:
         iter_fun = lambda x: x
         
-    sin_load = SinusoidalLoad(load, grid,
+    sin_load = SinusoidalLoad(load, PF_APP, grid,
                               config['library_name'],
                               config['user_models_name'],
                               config['frame_name'])
@@ -389,7 +565,7 @@ def run_AC_analysis():
         tstop = ttran + n_periods * T
         dt = min(config['dt'], T/100)
         n_samples = int(tstop / dt) + 1
-        sin_load.write_load_file(n_samples, dt, f, P, Q, verbosity_level)
+        sin_load.write_to_file(dt, P, Q, f, n_samples, verbosity_level>0)
         inc = _IC(dt, verbosity_level)
         sim,dur,err = _tran(ttran, verbosity_level)
         res, _ = _set_vars_to_save(config['record'], verbosity_level)
@@ -400,7 +576,7 @@ def run_AC_analysis():
         data.append(d)
 
     attributes, device_names = _get_attributes(config['record'], verbosity_level)
-    sin_load.clean()
+    sin_load.clean(verbosity_level>1)
     _turn_on_objects(out_of_service_objects)
 
     blob = {'config': config,
@@ -518,7 +694,7 @@ def run_load_step_sim():
             'device_names': device_names}
 
     np.savez_compressed(outfile, **blob)
-    
+
 
 ############################################################
 ###                         HELP                         ###
@@ -534,6 +710,7 @@ def help():
         print('Usage: {} <command> [<args>]'.format(progname))
         print('')
         print('Available commands are:')
+        print('   tran           Run a transient simulation (with stochastic loads)')
         print('   AC             Run a frequency scan analysis.')
         print('   load-step      Run a load step simulation.')
         print('')
@@ -546,7 +723,8 @@ def help():
 
 
 # all the commands currently implemented
-commands = {'help': help, 'AC': run_AC_analysis, 'load-step': run_load_step_sim}
+commands = {'help': help, 'AC': run_AC_analysis, 'load-step': run_load_step_sim,
+            'tran': run_tran}
 
 if __name__ == '__main__':
     if len(sys.argv) == 1 or sys.argv[1] in ('-h','--help'):
