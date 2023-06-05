@@ -11,6 +11,7 @@ import sys
 import json
 from time import time as TIME
 import numpy as np
+from numpy.random import RandomState, SeedSequence, MT19937
 
 import powerfactory as pf
 from pfcommon import OU, get_simulation_time, get_simulation_variables
@@ -175,14 +176,27 @@ def _get_attributes(record_map, verbosity_level=0):
     return attributes, device_names
 
 
-def _get_data(res, record_map, interval=(0,None), dt=None, verbosity_level=0):
-    ### get the data
+def _get_data(res, record_map, data_obj, interval=(0,None), dt=None, verbosity_level=0):
+    # data_obj is a PowerFactor DataObject used to create an IntVec object
+    # where the column data will be stored. If it is None, the (much slower)
+    # GetValue function will be used, which gets one value at a time from the
+    # ElmRes object
     if verbosity_level > 1:
         sys.stdout.write('Loading data from PF internal file... ')
         sys.stdout.flush()
+    vec = data_obj.CreateObject('IntVec') if data_obj is not None else None
     t0 = TIME()
+    res.Flush()
     res.Load()
-    time = get_simulation_time(res, interval, dt)
+    t1 = TIME()
+    if verbosity_level > 1:
+        sys.stdout.write(f'in memory in {t1-t0:.0f} sec... ')
+        sys.stdout.flush()
+    time = get_simulation_time(res, vec, interval, dt)
+    t2 = TIME()
+    if verbosity_level > 1:
+        sys.stdout.write(f'read time in {t2-t1:.0f} sec... ')
+        sys.stdout.flush()
     data = {}
     for dev_type in record_map:
         devices = _get_objects('*.' + dev_type)
@@ -194,13 +208,29 @@ def _get_data(res, record_map, interval=(0,None), dt=None, verbosity_level=0):
             key = dev_type
         data[key] = {}
         for var_name in record_map[dev_type]['vars']:
-            data[key][var_name] = get_simulation_variables(res, var_name,
-                                                           interval, dt,
+            data[key][var_name] = get_simulation_variables(res, var_name, vec,
+                                                           interval, dt, app=PF_APP,
                                                            elements=devices)
-    t1 = TIME()
+    res.Release()
+    t3 = TIME()
+    if vec is not None:
+        vec.Delete()
     if verbosity_level > 1:
-        sys.stdout.write(f'done in {t1-t0:.0f} sec.\n')
+        sys.stdout.write(f'read vars in {t3-t2:.0f} sec (total: {t3-t0:.0f} sec).\n')
     return np.array(time), data
+
+
+def _get_seed(config):
+    if 'seed' in config:
+        return config['seed']
+    import time
+    return time.time_ns() % 5061983
+
+
+def _get_random_state(config):
+    seed = _get_seed(config)
+    rs = RandomState(MT19937(SeedSequence(seed)))
+    return rs,seed
 
 
 def _print_network_info():
@@ -302,24 +332,36 @@ class SinusoidalLoad(TimeVaryingLoad):
                               Q[0] + Q[1] * np.sin(2*np.pi*F*t), verbose)
 
 class NormalStochasticLoad(TimeVaryingLoad):
-    def __init__(self, load, app, grid, library_name, user_models_name, frame_name, outdir='.'):
+    def __init__(self, load, app, grid, library_name, user_models_name, frame_name, outdir='.', seed=None):
         super().__init__(load, app, grid, library_name, user_models_name, frame_name, outdir)
+        self.seed = seed
+        if seed is not None:
+            self.rs = RandomState(MT19937(SeedSequence(seed)))
+        else:
+            self.rs = np.random
 
     def write_to_file(self, dt, P, Q, n_samples, verbose=False):
         super().write_to_file(dt,
-                              P[0] + P[1] * np.random.normal(size=n_samples),
-                              Q[0] + Q[1] * np.random.normal(size=n_samples),
+                              P[0] + P[1] * self.rs.normal(size=n_samples),
+                              Q[0] + Q[1] * self.rs.normal(size=n_samples),
                               verbose)
 
 class OULoad(TimeVaryingLoad):
-    def __init__(self, load, app, grid, library_name, user_models_name, frame_name, outdir='.'):
+    def __init__(self, load, app, grid, library_name, user_models_name, frame_name, outdir='.', seed=None):
         super().__init__(load, app, grid, library_name, user_models_name, frame_name, outdir)
+        self.seed = seed
+        if seed is not None:
+            self.rs = RandomState(MT19937(SeedSequence(seed)))
+        else:
+            self.rs = None
 
     def write_to_file(self, dt, P, Q, n_samples, tau, verbose=False):
         if np.isscalar(tau):
             tau = [tau, tau]
-        super().write_to_file(dt, OU(dt, P[0], P[1], tau[0], n_samples),
-                              OU(dt, Q[0], Q[1], tau[1], n_samples), verbose)
+        super().write_to_file(dt,
+                              OU(dt, P[0], P[1], tau[0], n_samples, random_state=self.rs),
+                              OU(dt, Q[0], Q[1], tau[1], n_samples, random_state=self.rs),
+                              verbose)
 
 
 ############################################################
@@ -381,6 +423,9 @@ def run_tran():
         print(f'{progname}: output file `{outfile}` exists: use -f to overwrite.')
         sys.exit(1)
 
+    rs,seed = _get_random_state(config)
+    if verbosity_level > 0: print(f'Seed: {seed}.')
+
     project_name = '\\Terna_Inerzia\\' + project_name
     project = _activate_project(project_name, verbosity_level)
     _print_network_info()
@@ -400,6 +445,8 @@ def run_tran():
                                                    config['stoch_loads'],
                                                    config['limits']),
                         _get_objects('*.ElmLod')))
+    n_loads = len(loads)
+
     if verbosity_level > 0:
         print(f'{len(loads)} loads match the name pattern and have either P or Q within the limits.')
         if verbosity_level > 1:
@@ -419,10 +466,11 @@ def run_tran():
         print('Cannot find a grid named `{}`.'.format(config['grid_name']))
         sys.exit(1)
 
-    stoch_loads = [OULoad(load, PF_APP, grid, config['library_name'],
+    seeds = rs.randint(0, 1000000, size=n_loads)
+    stoch_loads = [OULoad(ld, PF_APP, grid, config['library_name'],
                           config['user_models_name'], config['frame_name'],
-                          outdir='stoch_loads')
-                   for load in loads]
+                          outdir='stoch_loads', seed=sd)
+                   for ld,sd in zip(loads,seeds)]
 
     dt = config['dt']
     tstop = config['tstop']
@@ -431,19 +479,23 @@ def run_tran():
     for load,stoch_load in zip(loads, stoch_loads):
         P = load.plini, load.plini*config['sigma']['P']
         Q = load.qlini, load.qlini*config['sigma']['Q']
-        stoch_load.write_to_file(dt, P, Q, n_samples, tau, verbosity_level>1)
+        stoch_load.write_to_file(dt, P, Q, n_samples, tau, verbosity_level>2)
 
     inc = _IC(dt, verbosity_level)
     res, _ = _set_vars_to_save(config['record'], verbosity_level)
     sim,dur,err = _tran(tstop, verbosity_level)
-    interval = (0, None)
-    time,data = _get_data(res, config['record'], interval, dt, verbosity_level)
-    attributes, device_names = _get_attributes(config['record'], verbosity_level)
+
     for load in stoch_loads:
-        load.clean(verbosity_level>1)
+        load.clean(verbosity_level>2)
     _turn_on_objects(out_of_service_objects)
 
+    interval = (0, None)
+    time,data = _get_data(res, config['record'], project, interval, dt, verbosity_level)
+    attributes, device_names = _get_attributes(config['record'], verbosity_level)
+
     blob = {'config': config,
+            'seed': seed,
+            'OU_seeds': seeds,
             'time': np.array(time, dtype=object),
             'data': data,
             'attributes': attributes,
@@ -571,7 +623,7 @@ def run_AC_analysis():
         res, _ = _set_vars_to_save(config['record'], verbosity_level)
         sim,dur,err = _tran(tstop, verbosity_level)
         interval = (0, None) if config['save_transient'] else (ttran, None)
-        t,d = _get_data(res, config['record'], interval, dt, verbosity_level)
+        t,d = _get_data(res, config['record'], project, interval, dt, verbosity_level)
         time.append(t)
         data.append(d)
 
@@ -685,7 +737,7 @@ def run_load_step_sim():
         sys.exit(1)
 
     attributes,device_names = _get_attributes(config['record'], verbosity_level)
-    time,data = _get_data(res, config['record'], verbosity_level=verbosity_level)
+    time,data = _get_data(res, config['record'], project, verbosity_level=verbosity_level)
 
     blob = {'config': config,
             'time': np.array(time, dtype=object),

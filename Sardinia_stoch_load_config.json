@@ -48,6 +48,7 @@
 			"devs_name": "bus"
 		}
 	},
-	"dt": 2.5e-3,
+	"seed": 100,
+	"dt": 10e-3,
 	"tstop": 60
 }
