@@ -42,7 +42,7 @@ def compute_fourier_coeffs(F, time, speed, mu=10):
 ############################################################
 
 
-def _IC(dt, verbosity_level=0):
+def _IC(dt, verbose=False):
     ### compute the initial condition of the simulation
     inc = PF_APP.GetFromStudyCase('ComInc')
     inc.iopt_sim = 'rms'
@@ -52,23 +52,25 @@ def _IC(dt, verbosity_level=0):
     err = inc.Execute()
     if err:
         raise Exception('Cannot compute initial condition')
-    elif verbosity_level > 1:
+    elif verbose:
         print(f'Successfully computed initial condition (dt = {dt*1e3:.1f} ms).')
     return inc
 
-def _tran(tstop, verbosity_level=0):    
+
+def _tran(tstop, verbose=False):    
     ### run the transient simulation
     sim = PF_APP.GetFromStudyCase('ComSim')
     sim.tstop = tstop
-    if verbosity_level > 1:
+    if verbose:
         sys.stdout.write('Running simulation until t = {:.1f} sec... '.format(tstop))
         sys.stdout.flush()
     t0 = TIME()
     err = sim.Execute()
     t1 = TIME()
-    if verbosity_level > 1:
+    if verbose:
         sys.stdout.write(f'done in {t1-t0:.0f} sec.\n')
     return sim, t1-t0, err
+
 
 def _get_objects(suffix, keep_out_of_service=False):
     return [obj for obj in PF_APP.GetCalcRelevantObjects(suffix) \
@@ -89,12 +91,12 @@ def _find_in_contents(container, obj_name):
     return None
 
 
-def _activate_project(project_name, verbosity_level=0):   
+def _activate_project(project_name, verbose=False):   
     ### Activate the project
     err = PF_APP.ActivateProject(project_name)
     if err:
         raise Exception(f'Cannot activate project {project_name}.')
-    if verbosity_level > 0: print(f'Activated project "{project_name}".')
+    if verbose: print(f'Activated project "{project_name}".')
     ### Get the active project
     project = PF_APP.GetActiveProject()
     if project is None:
@@ -102,30 +104,106 @@ def _activate_project(project_name, verbosity_level=0):
     return project
 
 
-def _turn_off_objects(to_turn_off, verbosity_level=0):
-    out_of_service_objs = []
-    for dev_type,loc_names in to_turn_off.items():
+def _find_objects(to_find, verbose=False):
+    all_objs = []
+    for dev_type,loc_names in to_find.items():
         objs = _get_objects('*.' + dev_type)
         for obj in objs:
             if obj.loc_name in loc_names:
-                obj.outserv = True
-                out_of_service_objs.append(obj)
-                if verbosity_level > 1:
-                    print(f"Turned off device `{obj.loc_name}`.")
-    return out_of_service_objs
+                all_objs.append(obj)
+                if verbose:
+                    print(f'Found device `{obj.loc_name}`.')
+    return all_objs
 
 
-def _turn_on_objects(out_of_service_objs):
-    for obj in out_of_service_objs:
-        obj.outserv = False
+def _turn_on_off_objects(objs, outserv, verbose=False):
+    for obj in objs:
+        if obj.HasAttribute('outserv'):
+            obj.outserv = outserv
+            if verbose:
+                print('Turned {} device `{}`.'.format('OFF' if outserv else 'ON', obj.loc_name))
+        elif verbose:
+            print('Device `{}` does not have an outserv attribute.'.format(obj.loc_name))
+_turn_on_objects  = lambda objs, verbose=False: _turn_on_off_objects(objs, False, verbose)
+_turn_off_objects = lambda objs, verbose=False: _turn_on_off_objects(objs, True, verbose)
 
 
-def _set_vars_to_save(record_map, verbosity_level=0):
+def _save_SMs_status():
+    in_service, out_of_service = [], []
+    # synchronous machines
+    SMs = PF_APP.GetCalcRelevantObjects('*.ElmSym')
+    # substations
+    substations = {obj.loc_name: substation for substation in PF_APP.GetCalcRelevantObjects('*.ElmSubstat') \
+                   for obj in substation.GetContents() if obj in SMs}
+    for name,substation in substations.items():
+        for obj in substation.GetContents():
+            if obj.HasAttribute('outserv'):
+                if obj.outserv:
+                    out_of_service.append(obj)
+                else:
+                    in_service.append(obj)
+    return in_service, out_of_service
+
+
+def _apply_SMs_config(SM_config, verbose=False):
+    SMs = PF_APP.GetCalcRelevantObjects('*.ElmSym')
+    substations = PF_APP.GetCalcRelevantObjects('*.ElmSubstat')
+    for i,sm in enumerate(SMs):
+        name = sm.loc_name
+        if name in SM_config:
+            if SM_config[name] == sm.outserv:
+                # we have to change the status of the substation where the
+                # synchronous machine is located
+                if SM_config[name] == 1:
+                    # turn ON the substation
+                    if verbose:
+                        print(f'[{i+1:2d}] Turning ON {substations[name].loc_name}')
+                    _turn_on_objects(substations[name].GetContents())
+                else:
+                    # turn OFF the substation
+                    if verbose:
+                        print(f'[{i+1:2d}] Turning OFF (1) {substations[name].loc_name}')
+                    _turn_off_objects(substations[name].GetContents())
+            elif verbose:
+                # do not change the status of the machine
+                print('[{:2d}] {} stays {}'.
+                      format(i+1, sm.loc_name, 'OFF' if sm.outserv else 'ON'))
+        elif not sm.outserv:
+            # turn OFF the substation
+            if verbose:
+                print(f'[{i+1:2d}] Turning OFF (2) {substations[name].loc_name}')
+            _turn_off_objects(substations[name].GetContents())
+        elif verbose:
+            # do not change the status of the machine
+            print('[{:2d}] {} stays {}'.format(i+1, name, 'OFF' if sm.outserv else 'ON'))
+
+
+def _compute_measures(fn, verbose=False):
+    num, den = 0, 0
+    cnt = 0
+    for gen in PF_APP.GetCalcRelevantObjects('*.ElmSym'):
+        if not gen.outserv:
+            H,S = gen.typ_id.h, gen.typ_id.sgn
+            cnt += 1
+            print('[{:2d}] {}: S = {:5.1f} MVA, H = {:5.2f} s'.format(cnt, gen.loc_name, S, H))
+            num += H*S
+            den += S
+    H = num / den
+    E = num
+    M = 2 * num / fn
+    if verbose:
+        print(' INERTIA: {:8.1f} s.'.format(H))
+        print('  ENERGY: {:8.1f} MJ.'.format(E))
+        print('MOMENTUM: {:8.1f} MJ s.'.format(M))
+    return H,E,M
+
+
+def _set_vars_to_save(record_map, verbose=False):
     ### tell PowerFactory which variables should be saved to its internal file
     # speed, electrical power, mechanical torque, electrical torque, terminal voltage
     res = PF_APP.GetFromStudyCase('*.ElmRes')
     device_names = {}
-    if verbosity_level > 2: print('Adding the following quantities to the list of variables to be saved:')
+    if verbose: print('Adding the following quantities to the list of variables to be saved:')
     for dev_type in record_map:
         devices = _get_objects('*.' + dev_type)
         try:
@@ -135,19 +213,19 @@ def _set_vars_to_save(record_map, verbosity_level=0):
         device_names[key] = []
         for dev in devices:
             if record_map[dev_type]['names'] == '*' or dev.loc_name in record_map[dev_type]['names']:
-                if verbosity_level > 2: sys.stdout.write(f'{dev.loc_name}:')
+                if verbose: sys.stdout.write(f'{dev.loc_name}:')
                 for var_name in record_map[dev_type]['vars']:
                     res.AddVariable(dev, var_name)
-                    if verbosity_level > 2: sys.stdout.write(f' {var_name}')
+                    if verbose: sys.stdout.write(f' {var_name}')
                 device_names[key].append(dev.loc_name)
-                if verbosity_level > 2: sys.stdout.write('\n')
+                if verbose: sys.stdout.write('\n')
     return res, device_names
 
 
-def _get_attributes(record_map, verbosity_level=0):
+def _get_attributes(record_map, verbose=False):
     device_names = {}
     attributes = {}
-    if verbosity_level > 2: print('Getting the following attributes:')
+    if verbose: print('Getting the following attributes:')
     for dev_type in record_map:
         devices = _get_objects('*.' + dev_type)
         try:
@@ -158,7 +236,7 @@ def _get_attributes(record_map, verbosity_level=0):
         attributes[key] = {}
         for dev in devices:
             if record_map[dev_type]['names'] == '*' or dev.loc_name in record_map[dev_type]['names']:
-                if verbosity_level > 2: sys.stdout.write(f'{dev.loc_name}:')
+                if verbose: sys.stdout.write(f'{dev.loc_name}:')
                 if 'attrs' in record_map[dev_type]:
                     for attr_name in record_map[dev_type]['attrs']:
                         if attr_name not in attributes[key]:
@@ -170,18 +248,18 @@ def _get_attributes(record_map, verbosity_level=0):
                             attributes[key][attr_name].append(obj)
                         else:
                             attributes[key][attr_name].append(dev.GetAttribute(attr_name))
-                        if verbosity_level > 2: sys.stdout.write(f' {attr_name}')
+                        if verbose: sys.stdout.write(f' {attr_name}')
                 device_names[key].append(dev.loc_name)
-                if verbosity_level > 2: sys.stdout.write('\n')
+                if verbose: sys.stdout.write('\n')
     return attributes, device_names
 
 
-def _get_data(res, record_map, data_obj, interval=(0,None), dt=None, verbosity_level=0):
+def _get_data(res, record_map, data_obj, interval=(0,None), dt=None, verbose=False):
     # data_obj is a PowerFactor DataObject used to create an IntVec object
     # where the column data will be stored. If it is None, the (much slower)
     # GetValue function will be used, which gets one value at a time from the
     # ElmRes object
-    if verbosity_level > 1:
+    if verbose:
         sys.stdout.write('Loading data from PF internal file... ')
         sys.stdout.flush()
     vec = data_obj.CreateObject('IntVec') if data_obj is not None else None
@@ -189,12 +267,12 @@ def _get_data(res, record_map, data_obj, interval=(0,None), dt=None, verbosity_l
     res.Flush()
     res.Load()
     t1 = TIME()
-    if verbosity_level > 1:
+    if verbose:
         sys.stdout.write(f'in memory in {t1-t0:.0f} sec... ')
         sys.stdout.flush()
     time = get_simulation_time(res, vec, interval, dt)
     t2 = TIME()
-    if verbosity_level > 1:
+    if verbose:
         sys.stdout.write(f'read time in {t2-t1:.0f} sec... ')
         sys.stdout.flush()
     data = {}
@@ -215,7 +293,7 @@ def _get_data(res, record_map, data_obj, interval=(0,None), dt=None, verbosity_l
     t3 = TIME()
     if vec is not None:
         vec.Delete()
-    if verbosity_level > 1:
+    if verbose:
         sys.stdout.write(f'read vars in {t3-t2:.0f} sec (total: {t3-t0:.0f} sec).\n')
     return np.array(time), data
 
@@ -293,7 +371,7 @@ class TimeVaryingLoad(object):
         self.meas_file.f_name = self.meas_filepath
         self.comp_model = self.grid.CreateObject('ElmComp', 'time_dep_' + ld_name)
         self.comp_model.typ_id = self.frame
-        self.comp_model.SetAttribute("pelm", [self.meas_file, self.load])
+        self.comp_model.SetAttribute('pelm', [self.meas_file, self.load])
 
     @classmethod
     def _write(cls, filename, tPQ, verbose=False):
@@ -368,6 +446,7 @@ class OULoad(TimeVaryingLoad):
 ###                    TRANSIENT                         ###
 ############################################################
 
+
 def run_tran():
     
     def usage(exit_code=None):
@@ -378,6 +457,7 @@ def run_tran():
     force = False
     outfile = None
     verbosity_level = 1
+    send_email = False
 
     i = 2
     n_args = len(sys.argv)
@@ -393,6 +473,8 @@ def run_tran():
         elif arg in ('-v', '--verbose'):
             i += 1
             verbosity_level = int(sys.argv[i])
+        elif arg in ('-m', '--email'):
+            send_email = True
         elif arg[0] == '-':
             print(f'{progname}: unknown option `{arg}`')
             sys.exit(1)
@@ -427,11 +509,32 @@ def run_tran():
     if verbosity_level > 0: print(f'Seed: {seed}.')
 
     project_name = '\\Terna_Inerzia\\' + project_name
-    project = _activate_project(project_name, verbosity_level)
+    project = _activate_project(project_name, verbosity_level>0)
     _print_network_info()
-    out_of_service_objects = _turn_off_objects(config['out_of_service'],
-                                               verbosity_level)
+    
+    found = False
+    for grid in PF_APP.GetCalcRelevantObjects('*.ElmNet'):
+        if grid.loc_name == config['grid_name']:
+            if verbosity_level > 0:
+                print('Found grid named `{}`.'.format(config['grid_name']))
+            found = True
+            break
+    if not found:
+        print('Cannot find a grid named `{}`.'.format(config['grid_name']))
+        sys.exit(1)
 
+    to_turn_on = [obj for obj in _find_objects(config['out_of_service'], verbosity_level>1) \
+                  if not obj.outserv]
+    _turn_off_objects(to_turn_on, verbosity_level>2)
+    if 'synch_mach' in config:
+        in_service,to_turn_off = _save_SMs_status()
+        to_turn_on += in_service
+        _apply_SMs_config(config['synch_mach'], verbosity_level>1)
+    else:
+        to_turn_off = []
+
+    inertia,energy,momentum = _compute_measures(grid.frnom, verbosity_level>0)
+    
     def check_matches(load, patterns, limits):
         if all([re.match(pattern, load.loc_name) is None for pattern in patterns]):
             return False
@@ -449,22 +552,11 @@ def run_tran():
 
     if verbosity_level > 0:
         print(f'{len(loads)} loads match the name pattern and have either P or Q within the limits.')
-        if verbosity_level > 1:
+        if verbosity_level > 2:
             print('{:^5s} {:<30s} {:^10s} {:^10s}'.format('#', 'Name', 'P [MW]', 'Q [MVAr]'))
             print('=' * 58)
             for i,load in enumerate(loads):
                 print('[{:3d}] {:30s} {:10.3f} {:10.3f}'.format(i+1, load.loc_name, load.plini, load.qlini))
-
-    found = False
-    for grid in PF_APP.GetCalcRelevantObjects('*.ElmNet'):
-        if grid.loc_name == config['grid_name']:
-            if verbosity_level > 0:
-                print('Found grid named `{}`.'.format(config['grid_name']))
-            found = True
-            break
-    if not found:
-        print('Cannot find a grid named `{}`.'.format(config['grid_name']))
-        sys.exit(1)
 
     seeds = rs.randint(0, 1000000, size=n_loads)
     stoch_loads = [OULoad(ld, PF_APP, grid, config['library_name'],
@@ -481,32 +573,42 @@ def run_tran():
         Q = load.qlini, load.qlini*config['sigma']['Q']
         stoch_load.write_to_file(dt, P, Q, n_samples, tau, verbosity_level>2)
 
-    inc = _IC(dt, verbosity_level)
-    res, _ = _set_vars_to_save(config['record'], verbosity_level)
-    sim,dur,err = _tran(tstop, verbosity_level)
+    try:
+        inc = _IC(dt, verbosity_level>1)
+        res, _ = _set_vars_to_save(config['record'], verbosity_level>2)
+        sim,dur,err = _tran(tstop, verbosity_level>1)
+
+        interval = (0, None)
+        time,data = _get_data(res, config['record'], project, interval, dt, verbosity_level>1)
+        attributes, device_names = _get_attributes(config['record'], verbosity_level>2)
+    
+        blob = {'config': config,
+                'seed': seed,
+                'OU_seeds': seeds,
+                'inertia': inertia,
+                'energy': energy,
+                'momentum': momentum,
+                'time': np.array(time, dtype=object),
+                'data': data,
+                'attributes': attributes,
+                'device_names': device_names}
+    
+        np.savez_compressed(outfile, **blob)
+
+    except:
+        print('Cannot run simulation...')
 
     for load in stoch_loads:
         load.clean(verbosity_level>2)
-    _turn_on_objects(out_of_service_objects)
+    _turn_on_objects(to_turn_on, verbosity_level>2)
+    _turn_off_objects(to_turn_off, verbosity_level>2)
 
-    interval = (0, None)
-    time,data = _get_data(res, config['record'], project, interval, dt, verbosity_level)
-    attributes, device_names = _get_attributes(config['record'], verbosity_level)
+    if send_email:
+        ### send an email to let the recipients know that the job has finished
+        with open(config_file, 'r') as fid:
+            _send_email(subject=f'PowerFactory job finished - data saved to {outfile}',
+                        content=fid.read())
 
-    blob = {'config': config,
-            'seed': seed,
-            'OU_seeds': seeds,
-            'time': np.array(time, dtype=object),
-            'data': data,
-            'attributes': attributes,
-            'device_names': device_names}
-
-    np.savez_compressed(outfile, **blob)
-
-    ### send an email to let the recipients know that the job has finished
-    # with open(config_file, 'r') as fid:
-    #     _send_email(subject=f'PowerFactory job finished - data saved to {outfile}',
-    #                 content=fid.read())
 
 ############################################################
 ###                   AC ANALYSIS                        ###
@@ -571,10 +673,8 @@ def run_AC_analysis():
         sys.exit(1)
 
     project_name = '\\Terna_Inerzia\\' + project_name
-    project = _activate_project(project_name, verbosity_level)
+    project = _activate_project(project_name, verbosity_level>0)
     _print_network_info()
-    out_of_service_objects = _turn_off_objects(config['out_of_service'],
-                                               verbosity_level)
 
     load = _find_object('*.ElmLod', config['load_name'])
     if load is None:
@@ -592,6 +692,18 @@ def run_AC_analysis():
     if not found:
         print('Cannot find a grid named `{}`.'.format(config['grid_name']))
         sys.exit(1)
+
+    to_turn_on = [obj for obj in _find_objects(config['out_of_service'], verbosity_level>1) \
+                  if not obj.outserv]
+    _turn_off_objects(to_turn_on, verbosity_level>2)
+    if 'synch_mach' in config:
+        in_service,to_turn_off = _save_SMs_status()
+        to_turn_on += in_service
+        _apply_SMs_config(config['synch_mach'], verbosity_level>1)
+    else:
+        to_turn_off = []
+
+    inertia,energy,momentum = _compute_measures(grid.frnom, verbosity_level>0)
 
     n = int(F_stop - F_start) * steps_per_decade + 1
     F = np.logspace(F_start, F_stop, n)    
@@ -617,28 +729,35 @@ def run_AC_analysis():
         tstop = ttran + n_periods * T
         dt = min(config['dt'], T/100)
         n_samples = int(tstop / dt) + 1
-        sin_load.write_to_file(dt, P, Q, f, n_samples, verbosity_level>0)
-        inc = _IC(dt, verbosity_level)
-        sim,dur,err = _tran(ttran, verbosity_level)
-        res, _ = _set_vars_to_save(config['record'], verbosity_level)
-        sim,dur,err = _tran(tstop, verbosity_level)
-        interval = (0, None) if config['save_transient'] else (ttran, None)
-        t,d = _get_data(res, config['record'], project, interval, dt, verbosity_level)
-        time.append(t)
-        data.append(d)
+        sin_load.write_to_file(dt, P, Q, f, n_samples, verbosity_level>2)
+        try:
+            inc = _IC(dt, verbosity_level>1)
+            sim,dur,err = _tran(ttran, verbosity_level>1)
+            res, _ = _set_vars_to_save(config['record'], verbosity_level>2)
+            sim,dur,err = _tran(tstop, verbosity_level>1)
+            interval = (0, None) if config['save_transient'] else (ttran, None)
+            t,d = _get_data(res, config['record'], project, interval, dt, verbosity_level>1)
+            time.append(t)
+            data.append(d)
+        except:
+            print('Cannot run simulation')
 
-    attributes, device_names = _get_attributes(config['record'], verbosity_level)
+    if len(time) > 0:
+        attributes, device_names = _get_attributes(config['record'], verbosity_level>2)
+        blob = {'config': config,
+                'inertia': inertia,
+                'energy': energy,
+                'momentum': momentum,
+                'F': F,
+                'time': np.array(time, dtype=object),
+                'data': data,
+                'attributes': attributes,
+                'device_names': device_names}    
+        np.savez_compressed(outfile, **blob)
+
     sin_load.clean(verbosity_level>1)
-    _turn_on_objects(out_of_service_objects)
-
-    blob = {'config': config,
-            'F': F,
-            'time': np.array(time, dtype=object),
-            'data': data,
-            'attributes': attributes,
-            'device_names': device_names}
-
-    np.savez_compressed(outfile, **blob)
+    _turn_on_objects(to_turn_on, verbosity_level>2)
+    _turn_off_objects(to_turn_off, verbosity_level>2)
 
     ### send an email to let the recipients know that the job has finished
     with open(config_file, 'r') as fid:
@@ -707,19 +826,20 @@ def run_load_step_sim():
         sys.exit(1)
 
     project_name = '\\Terna_Inerzia\\' + config['project_name']
-    project = _activate_project(project_name, verbosity_level)
+    project = _activate_project(project_name, verbosity_level>0)
     _print_network_info()
 
     out_of_service_objects = _turn_off_objects(config['out_of_service'],
-                                               verbosity_level)
+                                               verbosity_level>2)
     load = _find_object('*.ElmLod', config['load_name'])
     if load is None:
         print('Cannot find a load named `{}`.'.format(config['load_name']))
         sys.exit(1)
 
     ### create a load event
-    sim_events = PF_APP.GetFromStudyCase('IntEvt')
-    load_event = sim_events.CreateObject('EvtLod', 'my_load_event')
+    sim_events = PF_APP.GetFromStudyCase('Simulation Events/Fault.IntEvt')
+    load_event = sim_events.CreateObject('EvtLod', '{}_{}'.
+                                         format(load.loc_name, np.random.randint(0, 10000)))
     if load_event is None:
         raise Exception('Cannot create load event')
     load_event.p_target = load
@@ -727,17 +847,20 @@ def run_load_step_sim():
     load_event.dP = config['dP'] * 100
     load_event.dQ = config['dQ'] * 100
     
-    inc = _IC(config['dt'], verbosity_level)
-    res,_ = _set_vars_to_save(config['record'], verbosity_level)
-    sim,dur,err = _tran(config['tstop'], verbosity_level)
+    inc = _IC(config['dt'], verbosity_level>1)
+    res,_ = _set_vars_to_save(config['record'], verbosity_level>2)
+    sim,dur,err = _tran(config['tstop'], verbosity_level>1)
+    # setting the load as out of service because for some reason the following
+    # call to .Delete doesn't remove the object from the simulation events
+    load_event.outserv = True
     load_event.Delete()
-    _turn_on_objects(out_of_service_objects)
+    _turn_on_objects(out_of_service_objects, verbosity_level>2)
     if err:
         print('Cannot run transient simulation.')
         sys.exit(1)
 
-    attributes,device_names = _get_attributes(config['record'], verbosity_level)
-    time,data = _get_data(res, config['record'], project, verbosity_level=verbosity_level)
+    attributes,device_names = _get_attributes(config['record'], verbosity_level>2)
+    time,data = _get_data(res, config['record'], project, verbosity_level>1)
 
     blob = {'config': config,
             'time': np.array(time, dtype=object),
@@ -792,4 +915,5 @@ if __name__ == '__main__':
     if PF_APP is None:
         print('Cannot get PowerFactory application.')
         sys.exit(1)
+    PF_APP.ResetCalculation()
     commands[sys.argv[1]]()

@@ -4,11 +4,40 @@
 	"library_name": "Library",
 	"user_models_name": "User Defined Models",
 	"frame_name": "TimeVaryingLoadFrame",
-	"out_of_service": {"ElmGenstat": []},
+	"out_of_service": {"ElmGenstat": ["SLACK_PSOCTI2202_1", "SLACK_SULCTI2201_2"]},
     "stoch_loads": ["^Eq.*_LOAD_.*"],
 	"limits": {"P": [5.0, 1e3], "Q": [5.0, 1e3]},
 	"sigma": {"P": 0.05, "Q": 0.0},
 	"tau": {"P": 0.02, "Q": 0.02},
+	"synch_mach": {
+		"BMAC_I0101GGR1____GEN_____": 1,
+		"BMSC_I0151GGR1____GEN_____": 1,
+		"COGCZI0151GGR1____GEN_____": 0,
+		"FL1CZI0101GGR1____GEN_____": 0,
+		"FL1CZI0102GGR2____GEN_____": 1,
+		"FL2CZI0101GGR1____GEN_____": 1,
+		"FL2CZI0102GGR2____GEN_____": 0,
+		"FL2CZI0103GGR3____GEN_____": 1,
+		"FL3CZI0101GGR1____GEN_____": 0,
+		"FL3CZI0102GGR2____GEN_____": 1,
+		"FSACTI0201GGR3____GEN_____": 1,
+		"FSACTI0202GGR4____GEN_____": 1,
+		"OZICZI0151GGR1____GEN_____": 1,
+		"SLXCZI0151GGR1____GEN_____": 1,
+		"SLXCZI0152GGR2____GEN_____": 1,
+		"SULCTI0202GGR2____GEN_____": 1,
+		"TALCTI0102GGR2____GEN_____": 0,
+		"TALCTI0103GGR3____GEN_____": 0,
+		"TALCTI0104GGR4____GEN_____": 0,
+		"TALCTI0105GGR5____GEN_____": 0,
+		"UVICTI0102GGR1____GEN_____": 0,
+		"UVICTI0102GGR2____GEN_____": 0,
+		"ASSCPI0152GGR2____GEN_____": 1,
+		"CODCTI0201GGR1____GEN_____": 1,
+		"CODCTI0202GGR2____GEN_____": 1,
+		"SELCTI0201GGR1____GEN_____": 1,
+		"SELCTI0202GGR2____GEN_____": 1
+	},
 	"record": {
 		"ElmSym": {
 			"names": "*",
@@ -49,6 +78,6 @@
 		}
 	},
 	"seed": 100,
-	"dt": 2.5e-3,
-	"tstop": 300
+	"dt": 5e-3,
+	"tstop": 3600
 }
