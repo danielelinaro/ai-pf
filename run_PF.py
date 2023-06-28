@@ -14,7 +14,7 @@ import numpy as np
 from numpy.random import RandomState, SeedSequence, MT19937
 
 import powerfactory as pf
-from pfcommon import OU, get_simulation_time, get_simulation_variables
+from pfcommon import OU, get_simulation_time, get_simulation_variables, run_power_flow
 
 
 __all__ = ['compute_fourier_coeffs']
@@ -146,8 +146,11 @@ def _save_SMs_status():
 
 
 def _apply_SMs_config(SM_config, verbose=False):
+    # synchronous machines
     SMs = PF_APP.GetCalcRelevantObjects('*.ElmSym')
-    substations = PF_APP.GetCalcRelevantObjects('*.ElmSubstat')
+    # substations
+    substations = {obj.loc_name: substation for substation in PF_APP.GetCalcRelevantObjects('*.ElmSubstat') \
+                   for obj in substation.GetContents() if obj in SMs}
     for i,sm in enumerate(SMs):
         name = sm.loc_name
         if name in SM_config:
@@ -179,23 +182,52 @@ def _apply_SMs_config(SM_config, verbose=False):
 
 
 def _compute_measures(fn, verbose=False):
+    # synchronous machines
     num, den = 0, 0
     cnt = 0
-    for gen in PF_APP.GetCalcRelevantObjects('*.ElmSym'):
-        if not gen.outserv:
-            H,S = gen.typ_id.h, gen.typ_id.sgn
+    Psm, Qsm = 0, 0
+    for sm in PF_APP.GetCalcRelevantObjects('*.ElmSym'):
+        if not sm.outserv:
+            Psm += sm.pgini
+            Qsm += sm.qgini
+            H,S = sm.typ_id.h, sm.typ_id.sgn
             cnt += 1
-            print('[{:2d}] {}: S = {:5.1f} MVA, H = {:5.2f} s'.format(cnt, gen.loc_name, S, H))
+            if verbose:
+                print('[{:2d}] {}: S = {:5.1f} MVA, H = {:5.2f} s{}'.
+                      format(cnt, sm.loc_name, S, H, ' [SLACK]' if sm.ip_ctrl else ''))
             num += H*S
             den += S
+        elif sm.ip_ctrl and verbose:
+            print('{}: SM SLACK OUT OF SERVICE'.format(sm.loc_name))
+    # static generators
+    Psg, Qsg = 0, 0
+    for sg in PF_APP.GetCalcRelevantObjects('*.ElmGenStat'):
+        if not sg.outserv:
+            Psg += sg.pgini
+            Qsg += sg.qgini
+        if sg.ip_ctrl and verbose:
+            print('{}: SG SLACK{}'.format(sg.loc_name, ' OUT OF SERVICE' if sg.outserv else ''))
+    # loads
+    Pload, Qload = 0, 0
+    for load in PF_APP.GetCalcRelevantObjects('*.ElmLod'):
+        if not load.outserv:
+            Pload += load.plini
+            Qload += load.qlini
     H = num / den
     E = num
     M = 2 * num / fn
     if verbose:
+        print('  P load: {:8.1f} MW'.format(Pload))
+        print('  Q load: {:8.1f} MVAr'.format(Qload))
+        print('    P SM: {:8.1f} MW'.format(Psm))
+        print('    Q SM: {:8.1f} MVAr'.format(Qsm))
+        print('    P SG: {:8.1f} MW'.format(Psg))
+        print('    Q SG: {:8.1f} MVAr'.format(Qsg))
+        print('    Stot: {:8.1f} MVA'.format(den))
         print(' INERTIA: {:8.1f} s.'.format(H))
         print('  ENERGY: {:8.1f} MJ.'.format(E))
         print('MOMENTUM: {:8.1f} MJ s.'.format(M))
-    return H,E,M
+    return H,E,M,den,Pload,Qload,Psm,Qsm,Psg,Qsg
 
 
 def _set_vars_to_save(record_map, verbose=False):
@@ -533,8 +565,10 @@ def run_tran():
     else:
         to_turn_off = []
 
-    inertia,energy,momentum = _compute_measures(grid.frnom, verbosity_level>0)
-    
+    inertia,energy,momentum,S,Pload,Qload,Psm,Qsm,Psg,Qsg = \
+        _compute_measures(grid.frnom, verbosity_level>0)
+    pf_res = run_power_flow(PF_APP)
+
     def check_matches(load, patterns, limits):
         if all([re.match(pattern, load.loc_name) is None for pattern in patterns]):
             return False
@@ -588,6 +622,11 @@ def run_tran():
                 'inertia': inertia,
                 'energy': energy,
                 'momentum': momentum,
+                'S': S,
+                'Psm': Psm, 'Qsm': Qsm,
+                'Psg': Psg, 'Qsg': Qsg,
+                'Pload': Pload, 'Qload': Qload,
+                'PF': pf_res,
                 'time': np.array(time, dtype=object),
                 'data': data,
                 'attributes': attributes,
@@ -703,7 +742,8 @@ def run_AC_analysis():
     else:
         to_turn_off = []
 
-    inertia,energy,momentum = _compute_measures(grid.frnom, verbosity_level>0)
+    inertia,energy,momentum,S,Pload,Qload,Psm,Qsm,Psg,Qsg = \
+        _compute_measures(grid.frnom, verbosity_level>0)
 
     n = int(F_stop - F_start) * steps_per_decade + 1
     F = np.logspace(F_start, F_stop, n)    
@@ -748,6 +788,10 @@ def run_AC_analysis():
                 'inertia': inertia,
                 'energy': energy,
                 'momentum': momentum,
+                'S': S,
+                'Psm': Psm, 'Qsm': Qsm,
+                'Psg': Psg, 'Qsg': Qsg,
+                'Pload': Pload, 'Qload': Qload,
                 'F': F,
                 'time': np.array(time, dtype=object),
                 'data': data,

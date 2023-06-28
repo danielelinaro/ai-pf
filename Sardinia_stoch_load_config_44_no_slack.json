@@ -4,7 +4,7 @@
 	"library_name": "Library",
 	"user_models_name": "User Defined Models",
 	"frame_name": "TimeVaryingLoadFrame",
-	"out_of_service": {"ElmGenstat": []},
+	"out_of_service": {"ElmGenstat": ["SLACK_PSOCTI2202_1", "SLACK_SULCTI2201_2"]},
     "stoch_loads": ["^Eq.*_LOAD_.*"],
 	"limits": {"P": [5.0, 1e3], "Q": [5.0, 1e3]},
 	"sigma": {"P": 0.05, "Q": 0.0},
@@ -44,12 +44,6 @@
 			"vars": ["s:xspeed", "s:pgt", "c:fi"],
 			"attrs": ["loc_name", "pgini", "qgini", "typ_id.h", "typ_id.sgn"],
 			"devs_name": "gen"
-		},
-		"ElmGenstat": {
-			"names": ["SLACK_PSOCTI2202_1", "SLACK_SULCTI2201_2"],
-			"vars": ["m:Psum:bus1", "m:Qsum:bus1"],
-			"attrs": ["loc_name"],
-			"devs_name": "static_gen"
 		},
 		"ElmTerm": {
 			"names": [

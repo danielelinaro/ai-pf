@@ -1,4 +1,5 @@
 
+import os
 import re
 import tables
 import numpy as np
@@ -9,7 +10,8 @@ __all__ = ['BaseParameters', 'AutomaticVoltageRegulator', 'TurbineGovernor', 'Po
            'get_ID', 'get_line_bus_IDs', 'normalize', 'OU', 'OU_2', 'run_power_flow',
            'print_power_flow', 'correct_traces', 'find_element_by_name',
            'is_voltage', 'is_power', 'is_frequency', 'is_current', 
-           'compute_generator_inertias', 'sort_objects_by_name', 'get_objects']
+           'compute_generator_inertias', 'sort_objects_by_name', 'get_objects',
+           'make_full_object_name', 'build_network_graph']
 
 
 class BaseParameters (tables.IsDescription):
@@ -323,7 +325,160 @@ class PowerBus (object):
         return '{} {:5s} powerbus vb={:.6e} v0={:.6e} theta0={:.6e}' \
                 .format(self.name, self.terminal, self.vb, self.v0, self.theta0)
 
-get_objects = lambda app, pattern: [obj for obj in app.GetCalcRelevantObjects(pattern) if not obj.outserv]
+def get_objects(app, pattern, keep_out_of_service=False):
+    if pattern[:2] != '.*':
+        pattern = '.*' + pattern
+    return [obj for obj in app.GetCalcRelevantObjects(pattern) if \
+            not obj.HasAttribute('outserv') or not obj.outserv or keep_out_of_service]
+
+
+make_full_object_name = lambda obj: '|'.join([s.split('.Elm')[0] for s in 
+                                              obj.GetFullName().split(os.path.sep)
+                                              if 'Elm' in s])
+
+
+def find_connected_terminal(term1, conn_elm, attr_names):
+    # make sure that term1 is indeed one of the terminals of conn_elm
+    if conn_elm.GetAttribute(attr_names[0]).cterm != term1 and \
+        conn_elm.GetAttribute(attr_names[1]).cterm != term1:
+            return None
+    for attr_name in attr_names:
+        term2 = conn_elm.GetAttribute(attr_name).cterm
+        if term2 != term1:
+            return term2
+    return None
+
+        
+def make_edges_from_terminal(term1):
+    term1_name = make_full_object_name(term1)
+    edges = []
+    for elm in term1.GetConnectedElements():
+        if (elm.HasAttribute('outserv') and elm.outserv) or \
+           (elm.HasAttribute('on_off') and not elm.on_off):
+            continue
+        if elm.HasAttribute('bus2'):
+            # a line or a breaker
+            other_terms = [find_connected_terminal(term1, elm, ('bus1', 'bus2'))]
+        elif elm.HasAttribute('busmv'):
+            # a 3-way transformer
+            other_terms = [find_connected_terminal(term1, elm, ('bushv', 'busmv')),
+                           find_connected_terminal(term1, elm, ('bushv', 'buslv'))]
+        elif elm.HasAttribute('bushv'):
+            # a 2-way transformer
+            other_terms = [find_connected_terminal(term1, elm, ('bushv', 'buslv'))]
+        else:
+            # print('Do not know how to deal with connected element {}'.format(elm.loc_name))
+            continue
+        elm_name = make_full_object_name(elm)
+        # remove the elements that are None
+        other_terms = filter(lambda x: x is not None, other_terms)
+        for term2 in other_terms:
+            term2_name = make_full_object_name(term2)
+            edges.append((term1_name,
+                          term2_name,
+                          elm_name, 
+                          elm.dline if elm.HasAttribute('dline') else 1e-3,
+                          max(term1.uknom, term2.uknom)))
+
+    return edges
+
+
+def build_network_graph(app, use='nodes', weighted=True, full_output=False, verbose=False):
+    from itertools import chain
+    from networkx import MultiGraph
+    
+    if use not in ('nodes','edges'):
+        raise Exception('`use` must be either `nodes` or `edges`')
+
+    # terminals do not have an out-of-service flag
+    terminals = get_objects(app, 'ElmTerm')
+    lines     = get_objects(app, 'ElmLne')
+    switches  = [obj for obj in app.GetCalcRelevantObjects('*.ElmCoup') if obj.on_off]
+    trans2    = get_objects(app, 'ElmTr2')
+    trans3    = get_objects(app, 'ElmTr3')
+    loads     = get_objects(app, 'ElmLod')
+    SMs       = get_objects(app, 'ElmSym')
+    SGs       = get_objects(app, 'ElmGenstat')
+    shunts    = get_objects(app, 'ElmShnt')
+
+    named_weighted_edges = []
+    if use == 'nodes':
+        cnt, cnt_swapped = 0, 0
+        for term1 in terminals:
+            edges = make_edges_from_terminal(term1)
+            for edge in edges:
+                edge_swapped_terms = (edge[1], edge[0], edge[2], edge[3], edge[4])
+                if edge in named_weighted_edges:
+                    cnt += 1
+                    if verbose: print('Edge {} already present.'.format(edge))
+                elif edge_swapped_terms in named_weighted_edges:
+                    cnt_swapped += 1
+                else:
+                    named_weighted_edges.append(edge)
+        if verbose:
+            print('Number of edges not added: {}'.format(cnt))
+            print('Number of swapped edges not added: {}'.format(cnt_swapped))
+    else:
+        raise NotImplementedError('This part is not complete')
+        for obj in chain(lines, switches):
+            named_weighted_edges.append((make_full_object_name(obj.bus1.cterm),
+                                         make_full_object_name(obj.bus2.cterm),
+                                         make_full_object_name(obj),
+                                         obj.bus1.cterm.uknom))
+        for tr in trans2:
+            named_weighted_edges.append((make_full_object_name(tr.bushv.cterm),
+                                         make_full_object_name(tr.buslv.cterm),
+                                         make_full_object_name(tr),
+                                         tr.bushv.cterm.uknom))
+        for tr in trans3:
+            named_weighted_edges.append((make_full_object_name(tr.bushv.cterm),
+                                         make_full_object_name(tr.busmv.cterm),
+                                         make_full_object_name(tr),
+                                         tr.bushv.cterm.uknom))
+            named_weighted_edges.append((make_full_object_name(tr.bushv.cterm),
+                                         make_full_object_name(tr.buslv.cterm),
+                                         make_full_object_name(tr),
+                                         tr.bushv.cterm.uknom))
+    
+    nodes = []
+    for edge in named_weighted_edges:
+        for node in edge[:2]:
+            if node not in nodes:
+                nodes.append(node)
+
+
+    if use == 'edges':
+        #TODO: check that all terminals are nodes in the graph
+        pass
+        # The following part is useless: a DataObject connected to a terminal
+        # does not constitute an edge.
+        #
+        # def add_edges(objs, E, N):
+        #     for obj in objs:
+        #         term_name = make_full_object_name(obj.bus1.cterm)
+        #         if term_name in N:
+        #             obj_name = make_full_object_name(obj)
+        #             E.append((obj_name, term_name, obj.bus1.cterm.uknom))
+        #             N.append(obj_name)
+        #         else:
+        #             print('Unknown node name: {}'.format(term_name))
+        # add_edges(loads, named_weighted_edges, nodes)
+        # add_edges(SMs, named_weighted_edges, nodes)
+        # add_edges(SGs, named_weighted_edges, nodes)
+        # add_edges(shunts, named_weighted_edges, nodes)
+        
+    G = MultiGraph()
+    if weighted:
+        edges = [(a,b,w) for a,b,n,w,v in named_weighted_edges]
+        G.add_weighted_edges_from(edges)
+    else:
+        edges = [(a,b) for a,b,n,w,v in named_weighted_edges]
+        G.add_edges_from(edges)
+
+    if full_output:
+        return G,named_weighted_edges,nodes,terminals,lines,switches,\
+            trans2,trans3,loads,SMs,SGs,shunts
+    return G,edges,nodes
 
 
 def sort_objects_by_name(objects):
@@ -549,35 +704,49 @@ def OU_2(dt, alpha, mu, c, N, random_state = None):
     return ou
 
 
-def run_power_flow(app, project_folder, study_case_name, generators, loads, buses,
-                  lines, transformers=None, verbose=False):
-    study_case = project_folder.GetContents(study_case_name)[0]
-    study_case.Activate()
-    if verbose: print(f'Successfully activated study case {study_case_name}.')
+def run_power_flow(app, project_folder=None, study_case_name=None, verbose=False):
+    if project_folder is not None and study_case_name is not None:
+        study_case = project_folder.GetContents(study_case_name)[0]
+        study_case.Activate()
+        if verbose: print(f'Successfully activated study case {study_case_name}.')
     power_flow = app.GetFromStudyCase('ComLdf')
     err = power_flow.Execute()
     if err:
         raise Exception('Cannot run load flow')
     if verbose: print('Successfully run load flow.')
-    results = {key: {} for key in ('generators', 'buses', 'loads', 'lines')}
+    results = {key: {} for key in ('SMs', 'SGs', 'buses', 'loads', 'lines', 'transformers')}
     
+    get_objects = lambda clss: [obj for obj in app.GetCalcRelevantObjects('*.' + clss) \
+                                if not obj.outserv]
     Ptot, Qtot = 0, 0
-    for gen in generators:
-        pq = [gen.GetAttribute(f'm:{c}sum:bus1') for c in 'PQ']
-        results['generators'][gen.loc_name] = {
+    for sm in get_objects('ElmSym'):
+        pq = [sm.GetAttribute(f'm:{c}sum:bus1') for c in 'PQ']
+        results['SMs'][sm.loc_name] = {
             'P': pq[0],
             'Q': pq[1],
-            'I': gen.GetAttribute('m:I:bus1'),
-            'V': gen.GetAttribute('m:U1:bus1'),    # line-to-ground voltage
-            'Vl': gen.GetAttribute('m:U1l:bus1')  # line-to-line voltage
+            'I': sm.GetAttribute('m:I:bus1'),
+            'V': sm.GetAttribute('m:U1:bus1'),    # line-to-ground voltage
+            'Vl': sm.GetAttribute('m:U1l:bus1')  # line-to-line voltage
         }
         Ptot += pq[0]
         Qtot += pq[1]
-    results['generators']['Ptot'] = Ptot
-    results['generators']['Qtot'] = Qtot
-        
+    results['SMs']['Ptot'] = Ptot
+    results['SMs']['Qtot'] = Qtot
+
     Ptot, Qtot = 0, 0
-    for load in loads:
+    for sg in get_objects('ElmGenStat'):
+        pq = [sg.GetAttribute(f'm:{c}sum:bus1') for c in 'PQ']
+        results['SGs'][sg.loc_name] = {
+            'P': pq[0],
+            'Q': pq[1]
+        }
+        Ptot += pq[0]
+        Qtot += pq[1]
+    results['SGs']['Ptot'] = Ptot
+    results['SGs']['Qtot'] = Qtot
+
+    Ptot, Qtot = 0, 0
+    for load in get_objects('ElmLod'):
         pq = [load.GetAttribute(f'm:{c}sum:bus1') for c in 'PQ']
         results['loads'][load.loc_name] = {
             'P': pq[0],
@@ -592,20 +761,23 @@ def run_power_flow(app, project_folder, study_case_name, generators, loads, buse
     results['loads']['Qtot'] = Qtot
     
     power_types = ['gen','load','flow','out']
-    for bus in buses:
-        results['buses'][bus.loc_name] = {
-            'voltage': bus.GetAttribute('m:u'),
-            'V': bus.GetAttribute('m:U'),
-            'Vd': bus.GetAttribute('m:u1r'),
-            'Vq': bus.GetAttribute('m:u1i'),
-            'Vl': bus.GetAttribute('m:Ul'),
-            'P': {power_type: bus.GetAttribute(f'm:P{power_type}') for power_type in power_types},
-            'Q': {power_type: bus.GetAttribute(f'm:Q{power_type}') for power_type in power_types}
-        }
-        
+    for bus in get_objects('ElmTerm'):
+        try:
+            results['buses'][bus.loc_name] = {
+                'voltage': bus.GetAttribute('m:u'),
+                'V': bus.GetAttribute('m:U'),
+                'Vd': bus.GetAttribute('m:u1r'),
+                'Vq': bus.GetAttribute('m:u1i'),
+                'Vl': bus.GetAttribute('m:Ul'),
+                'P': {power_type: bus.GetAttribute(f'm:P{power_type}') for power_type in power_types},
+                'Q': {power_type: bus.GetAttribute(f'm:Q{power_type}') for power_type in power_types}
+            }
+        except:
+            pass
+
     Ptot = {'bus1': 0, 'bus2': 0}
     Qtot = {'bus1': 0, 'bus2': 0}
-    for line in lines:
+    for line in get_objects('ElmLne'):
         P1 = line.GetAttribute('m:Psum:bus1')
         Q1 = line.GetAttribute('m:Qsum:bus1')
         P2 = line.GetAttribute('m:Psum:bus2')
@@ -616,24 +788,28 @@ def run_power_flow(app, project_folder, study_case_name, generators, loads, buse
         Qtot['bus2'] += Q2
         results['lines'][line.loc_name] = {
             'P_bus1': P1, 'Q_bus1': Q1,
-            'P_bus1': P2, 'Q_bus2': Q2,
+            'P_bus2': P2, 'Q_bus2': Q2,
         }
     results['lines']['Ptot'] = Ptot
     results['lines']['Qtot'] = Qtot
 
-    if transformers is not None:
-        results['transformers'] = {}
-        results['transformers']['Ptot'] = {'bushv': 0, 'buslv': 0}
-        results['transformers']['Qtot'] = {'bushv': 0, 'buslv': 0}
-        Ptot = {'bushv': 0, 'buslv': 0}
-        Qtot = {'bushv': 0, 'buslv': 0}
-        for trans in transformers:
-            results['transformers'][trans.loc_name] = {}
-            for pq in 'PQ':
-                for hl in 'hl':
+    results['transformers']['Ptot'] = {'bushv': 0, 'buslv': 0}
+    results['transformers']['Qtot'] = {'bushv': 0, 'buslv': 0}
+    for trans in get_objects('ElmTr2'):
+        results['transformers'][trans.loc_name] = {}
+        has_attrs = True
+        for pq in 'PQ':
+            for hl in 'hl':
+                try:
                     val = trans.GetAttribute(f'm:{pq}sum:bus{hl}v')
                     results['transformers'][trans.loc_name][f'{pq}_bus{hl}v'] = val
                     results['transformers'][f'{pq}tot'][f'bus{hl}v'] += val
+                except:
+                    results['transformers'].pop(trans.loc_name)
+                    has_attrs = False
+                    break
+            if not has_attrs:
+                break
 
     return results
 

@@ -4,7 +4,7 @@
 	"library_name": "Library",
 	"user_models_name": "User Defined Models",
 	"frame_name": "TimeVaryingLoadFrame",
-	"out_of_service": {"ElmGenstat": ["SLACK_PSOCTI2202_1", "SLACK_SULCTI2201_2"]},
+	"out_of_service": {"ElmGenstat": []},
     "stoch_loads": ["^Eq.*_LOAD_.*"],
 	"limits": {"P": [5.0, 1e3], "Q": [5.0, 1e3]},
 	"sigma": {"P": 0.05, "Q": 0.0},
@@ -79,5 +79,5 @@
 	},
 	"seed": 100,
 	"dt": 5e-3,
-	"tstop": 3600
+	"tstop": 10
 }
