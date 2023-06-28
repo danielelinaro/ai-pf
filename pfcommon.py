@@ -11,7 +11,7 @@ __all__ = ['BaseParameters', 'AutomaticVoltageRegulator', 'TurbineGovernor', 'Po
            'print_power_flow', 'correct_traces', 'find_element_by_name',
            'is_voltage', 'is_power', 'is_frequency', 'is_current', 
            'compute_generator_inertias', 'sort_objects_by_name', 'get_objects',
-           'make_full_object_name', 'build_network_graph']
+           'make_full_object_name', 'build_network_graph', 'Node', 'Edge']
 
 
 class BaseParameters (tables.IsDescription):
@@ -348,9 +348,47 @@ def find_connected_terminal(term1, conn_elm, attr_names):
             return term2
     return None
 
-        
+
+class Node (object):
+    def __init__(self, name, voltage, coords=[0.,0.]):
+        self.name = name
+        self.voltage = voltage
+        self.coords = np.array(coords)
+        self.lat, self.lon = coords
+
+    def __eq__(self, o):
+        return self.name == o.name and self.voltage == o.voltage and \
+            self.lat == o.lat and self.lon == o.lon
+
+
+class Edge (object):
+    def __init__(self, name, node1, node2, length):
+        self.name = name
+        self.node1 = node1
+        self.node2 = node2
+        self.length = length
+        self.voltage = max(node1.voltage, node2.voltage) # somewhat arbitrarily
+
+    def __str__(self):
+        return 'Terminal 1: {} @ ({:.3f},{:.3f})\n'.format(self.node1.name,
+                                                           self.node1.lat,
+                                                           self.node1.lon) + \
+               'Terminal 2: {} @ ({:.3f},{:.3f})\n'.format(self.node2.name,
+                                                           self.node2.lat,
+                                                           self.node2.lon) + \
+               'Edge: {}\n'.format(self.name) + \
+               'Length: {} km\n'.format(self.length) + \
+               'Voltage: {} kV\n'.format(self.voltage)
+
+    def __eq__(self, o):
+        return self.name == o.name and self.node1 == o.node1 and \
+            self.node2 == o.node2 and self.length == o.length and \
+            self.voltage == o.voltage
+
+
 def make_edges_from_terminal(term1):
     term1_name = make_full_object_name(term1)
+    node1 = Node(term1_name, term1.uknom, [term1.GPSlat, term1.GPSlon])
     edges = []
     for elm in term1.GetConnectedElements():
         if (elm.HasAttribute('outserv') and elm.outserv) or \
@@ -374,110 +412,48 @@ def make_edges_from_terminal(term1):
         other_terms = filter(lambda x: x is not None, other_terms)
         for term2 in other_terms:
             term2_name = make_full_object_name(term2)
-            edges.append((term1_name,
-                          term2_name,
-                          elm_name, 
-                          elm.dline if elm.HasAttribute('dline') else 1e-3,
-                          max(term1.uknom, term2.uknom)))
+            node2 = Node(term2_name, term2.uknom, [term2.GPSlat, term2.GPSlon])
+            edge = Edge(elm_name, node1, node2, elm.dline if elm.HasAttribute('dline') else 1e-3)
+            edges.append(edge)
 
     return edges
 
 
-def build_network_graph(app, use='nodes', weighted=True, full_output=False, verbose=False):
-    from itertools import chain
+def build_network_graph(app, verbose=False):
     from networkx import MultiGraph
     
-    if use not in ('nodes','edges'):
-        raise Exception('`use` must be either `nodes` or `edges`')
-
-    # terminals do not have an out-of-service flag
     terminals = get_objects(app, 'ElmTerm')
-    lines     = get_objects(app, 'ElmLne')
-    switches  = [obj for obj in app.GetCalcRelevantObjects('*.ElmCoup') if obj.on_off]
-    trans2    = get_objects(app, 'ElmTr2')
-    trans3    = get_objects(app, 'ElmTr3')
-    loads     = get_objects(app, 'ElmLod')
-    SMs       = get_objects(app, 'ElmSym')
-    SGs       = get_objects(app, 'ElmGenstat')
-    shunts    = get_objects(app, 'ElmShnt')
 
-    named_weighted_edges = []
-    if use == 'nodes':
-        cnt, cnt_swapped = 0, 0
-        for term1 in terminals:
-            edges = make_edges_from_terminal(term1)
-            for edge in edges:
-                edge_swapped_terms = (edge[1], edge[0], edge[2], edge[3], edge[4])
-                if edge in named_weighted_edges:
-                    cnt += 1
-                    if verbose: print('Edge {} already present.'.format(edge))
-                elif edge_swapped_terms in named_weighted_edges:
-                    cnt_swapped += 1
-                else:
-                    named_weighted_edges.append(edge)
-        if verbose:
-            print('Number of edges not added: {}'.format(cnt))
-            print('Number of swapped edges not added: {}'.format(cnt_swapped))
-    else:
-        raise NotImplementedError('This part is not complete')
-        for obj in chain(lines, switches):
-            named_weighted_edges.append((make_full_object_name(obj.bus1.cterm),
-                                         make_full_object_name(obj.bus2.cterm),
-                                         make_full_object_name(obj),
-                                         obj.bus1.cterm.uknom))
-        for tr in trans2:
-            named_weighted_edges.append((make_full_object_name(tr.bushv.cterm),
-                                         make_full_object_name(tr.buslv.cterm),
-                                         make_full_object_name(tr),
-                                         tr.bushv.cterm.uknom))
-        for tr in trans3:
-            named_weighted_edges.append((make_full_object_name(tr.bushv.cterm),
-                                         make_full_object_name(tr.busmv.cterm),
-                                         make_full_object_name(tr),
-                                         tr.bushv.cterm.uknom))
-            named_weighted_edges.append((make_full_object_name(tr.bushv.cterm),
-                                         make_full_object_name(tr.buslv.cterm),
-                                         make_full_object_name(tr),
-                                         tr.bushv.cterm.uknom))
+    swap_nodes = lambda edge: Edge(edge.name, edge.node2, edge.node1, edge.length)
     
+    edges = []
+    cnt, cnt_swapped = 0, 0
+    for term1 in terminals:
+        for edge in make_edges_from_terminal(term1):
+            edge_swapped_nodes = swap_nodes(edge)
+            if edge in edges:
+                cnt += 1
+                if verbose: print('Edge {} already present.'.format(edge))
+            elif edge_swapped_nodes in edges:
+                cnt_swapped += 1
+            else:
+                edges.append(edge)
+    if verbose:
+        print('Number of edges not added: {}'.format(cnt))
+        print('Number of swapped edges not added: {}'.format(cnt_swapped))
+
     nodes = []
-    for edge in named_weighted_edges:
-        for node in edge[:2]:
-            if node not in nodes:
-                nodes.append(node)
+    for edge in edges:
+        if edge.node1 not in nodes:
+            nodes.append(edge.node1)
+        if edge.node2 not in nodes:
+            nodes.append(edge.node2)
 
-
-    if use == 'edges':
-        #TODO: check that all terminals are nodes in the graph
-        pass
-        # The following part is useless: a DataObject connected to a terminal
-        # does not constitute an edge.
-        #
-        # def add_edges(objs, E, N):
-        #     for obj in objs:
-        #         term_name = make_full_object_name(obj.bus1.cterm)
-        #         if term_name in N:
-        #             obj_name = make_full_object_name(obj)
-        #             E.append((obj_name, term_name, obj.bus1.cterm.uknom))
-        #             N.append(obj_name)
-        #         else:
-        #             print('Unknown node name: {}'.format(term_name))
-        # add_edges(loads, named_weighted_edges, nodes)
-        # add_edges(SMs, named_weighted_edges, nodes)
-        # add_edges(SGs, named_weighted_edges, nodes)
-        # add_edges(shunts, named_weighted_edges, nodes)
-        
     G = MultiGraph()
-    if weighted:
-        edges = [(a,b,w) for a,b,n,w,v in named_weighted_edges]
-        G.add_weighted_edges_from(edges)
-    else:
-        edges = [(a,b) for a,b,n,w,v in named_weighted_edges]
-        G.add_edges_from(edges)
+    for e in edges:
+        G.add_edge(e.node1.name, e.node2.name, weight=e.length,
+                   label=e.name, voltage=e.voltage)
 
-    if full_output:
-        return G,named_weighted_edges,nodes,terminals,lines,switches,\
-            trans2,trans3,loads,SMs,SGs,shunts
     return G,edges,nodes
 
 
