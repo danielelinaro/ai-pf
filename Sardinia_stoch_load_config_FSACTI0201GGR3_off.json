@@ -9,6 +9,9 @@
 	"limits": {"P": [5.0, 1e3], "Q": [5.0, 1e3]},
 	"sigma": {"P": 0.05, "Q": 0.0},
 	"tau": {"P": 0.02, "Q": 0.02},
+	"synch_mach": {
+		"FSACTI0201GGR3____GEN_____": 0
+	},
 	"record": {
 		"ElmSym": {
 			"names": "*",

@@ -128,20 +128,23 @@ _turn_on_objects  = lambda objs, verbose=False: _turn_on_off_objects(objs, False
 _turn_off_objects = lambda objs, verbose=False: _turn_on_off_objects(objs, True, verbose)
 
 
-def _save_SMs_status():
+def _find_SMs_to_toggle(synch_mach):
     in_service, out_of_service = [], []
-    # synchronous machines
-    SMs = PF_APP.GetCalcRelevantObjects('*.ElmSym')
-    # substations
-    substations = {obj.loc_name: substation for substation in PF_APP.GetCalcRelevantObjects('*.ElmSubstat') \
-                   for obj in substation.GetContents() if obj in SMs}
-    for name,substation in substations.items():
-        for obj in substation.GetContents():
-            if obj.HasAttribute('outserv'):
-                if obj.outserv:
-                    out_of_service.append(obj)
-                else:
-                    in_service.append(obj)
+    # synchronous machines that change their status
+    SMs = [sm for sm in PF_APP.GetCalcRelevantObjects('*.ElmSym') \
+           if sm.loc_name in synch_mach.keys() and sm.outserv == synch_mach[sm.loc_name]]
+    if len(SMs) > 0:
+        # substations
+        substations = {obj.loc_name: substation for substation in \
+                       PF_APP.GetCalcRelevantObjects('*.ElmSubstat') \
+                       for obj in substation.GetContents() if obj in SMs}
+        for name,substation in substations.items():
+            for obj in substation.GetContents():
+                if obj.HasAttribute('outserv'):
+                    if obj.outserv:
+                        out_of_service.append(obj)
+                    else:
+                        in_service.append(obj)
     return in_service, out_of_service
 
 
@@ -555,19 +558,69 @@ def run_tran():
         print('Cannot find a grid named `{}`.'.format(config['grid_name']))
         sys.exit(1)
 
+
+    # the lists to_turn_on and to_turn_off contain the objects that will have
+    # to be turned on and off at the end of the simulation
     to_turn_on = [obj for obj in _find_objects(config['out_of_service'], verbosity_level>1) \
                   if not obj.outserv]
     _turn_off_objects(to_turn_on, verbosity_level>2)
+
+    in_service, to_turn_off = [], []
     if 'synch_mach' in config:
-        in_service,to_turn_off = _save_SMs_status()
-        to_turn_on += in_service
-        _apply_SMs_config(config['synch_mach'], verbosity_level>1)
-    else:
-        to_turn_off = []
+        in_service,to_turn_off = _find_SMs_to_toggle(config['synch_mach'])
+    to_turn_on += in_service
+
+    # switch off the objects that are currently in service
+    _turn_off_objects(in_service)
+    # switch on the objects that are currently out of service, i.e., they will
+    # have to be turned off at the end
+    _turn_on_objects(to_turn_off)
+
+    # Run a power flow analysis
+    PF1 = run_power_flow(PF_APP)
+    P_to_distribute = 0
+    slacks = []
+    for SG in PF1['SGs']:
+        if 'slack' in SG.lower():
+            P_to_distribute += PF1['SGs'][SG]['P']
+            slacks.append(_find_object('*.ElmGenStat', SG))
+    if verbosity_level > 0: print(f'Total power to distribute from {len(slacks)} slack generators: {P_to_distribute:.2f} MW.')
+    
+    # Find the loads that model the HVDC connections
+    HVDCs = [ld for ld in  _get_objects('ElmLod') if ld.typ_id.loc_name == 'HVDCload']
+    idx = np.argsort([hvdc.plini for hvdc in HVDCs])[::-1]
+    HVDCs = [HVDCs[i] for i in idx]
+    HVDC_P = {hvdc.loc_name: hvdc.plini for hvdc in HVDCs}
+    for hvdc in HVDCs:
+        hvdc.plini = max(0., HVDC_P[hvdc.loc_name] - P_to_distribute)
+        P_to_distribute -= HVDC_P[hvdc.loc_name] - hvdc.plini
+        print('{}: {:.2f} -> {:.2f} MW'.format(hvdc.loc_name,
+                                               HVDC_P[hvdc.loc_name],
+                                               hvdc.plini))
+        if P_to_distribute <= 1:
+            break
+
+    for slack in slacks:
+        slack.outserv = True
+        to_turn_on.append(slack)
+        
+    PF2 = run_power_flow(PF_APP)
+    for SM in PF1['SMs']:
+        try:
+            if verbosity_level > 0 and \
+                (np.abs(PF1['SMs'][SM]['P'] - PF2['SMs'][SM]['P']) > 0.1 or \
+                 np.abs(PF1['SMs'][SM]['Q'] - PF2['SMs'][SM]['Q']) > 0.1):
+                print('{}: P = {:7.2f} -> {:7.2f} MW, Q = {:7.2f} -> {:7.2f} MVAr'.\
+                      format(SM,
+                             PF1['SMs'][SM]['P'],
+                             PF2['SMs'][SM]['P'],
+                             PF1['SMs'][SM]['Q'],
+                             PF2['SMs'][SM]['Q']))
+        except:
+            pass
 
     inertia,energy,momentum,S,Pload,Qload,Psm,Qsm,Psg,Qsg = \
         _compute_measures(grid.frnom, verbosity_level>0)
-    pf_res = run_power_flow(PF_APP)
 
     def check_matches(load, patterns, limits):
         if all([re.match(pattern, load.loc_name) is None for pattern in patterns]):
@@ -612,6 +665,9 @@ def run_tran():
         res, _ = _set_vars_to_save(config['record'], verbosity_level>2)
         sim,dur,err = _tran(tstop, verbosity_level>1)
 
+        for hvdc in HVDCs:
+            hvdc.plini = HVDC_P[hvdc.loc_name]
+
         interval = (0, None)
         time,data = _get_data(res, config['record'], project, interval, dt, verbosity_level>1)
         attributes, device_names = _get_attributes(config['record'], verbosity_level>2)
@@ -626,7 +682,8 @@ def run_tran():
                 'Psm': Psm, 'Qsm': Qsm,
                 'Psg': Psg, 'Qsg': Qsg,
                 'Pload': Pload, 'Qload': Qload,
-                'PF': pf_res,
+                'PF_with_slack': PF1,
+                'PF_without_slack': PF2,
                 'time': np.array(time, dtype=object),
                 'data': data,
                 'attributes': attributes,
@@ -639,7 +696,7 @@ def run_tran():
 
     for load in stoch_loads:
         load.clean(verbosity_level>2)
-    _turn_on_objects(to_turn_on, verbosity_level>2)
+    _turn_on_objects (to_turn_on,  verbosity_level>2)
     _turn_off_objects(to_turn_off, verbosity_level>2)
 
     if send_email:
@@ -736,7 +793,7 @@ def run_AC_analysis():
                   if not obj.outserv]
     _turn_off_objects(to_turn_on, verbosity_level>2)
     if 'synch_mach' in config:
-        in_service,to_turn_off = _save_SMs_status()
+        in_service,to_turn_off = _find_SMs_to_toggle()
         to_turn_on += in_service
         _apply_SMs_config(config['synch_mach'], verbosity_level>1)
     else:
