@@ -25,10 +25,16 @@ def compute_fourier_coeffs(F, time, speed, mu=10):
     for i,(f,t,spd) in enumerate(zip(F, time, speed)):
         dt = np.diff(t)
         dt = dt[dt >= 1e-6][0]
-        idx = t > t[-1] - mu / f
+        T = 1/f
+        n = 1
+        while n*T < t[0]:
+            n += 1
+        μ = 1 + np.where((n+1+np.arange(mu)) * T <= t[-1])[0][-1]
+        t0,t1 = n*T, (n+μ)*T
+        idx = (t>=t0) & (t<=t1)
         for j in range(n_generators):
-            gammac[i,j] = f/mu*dt*np.cos(2*np.pi*f*t[np.newaxis,idx]) @ (spd[idx,j]-1)
-            gammas[i,j] = f/mu*dt*np.sin(2*np.pi*f*t[np.newaxis,idx]) @ (spd[idx,j]-1)
+            gammac[i,j] = f/μ*dt*np.cos(2*np.pi*f*(t[np.newaxis,idx]-t0)) @ (spd[idx,j]-1)
+            gammas[i,j] = f/μ*dt*np.sin(2*np.pi*f*(t[np.newaxis,idx]-t0)) @ (spd[idx,j]-1)
     return gammac,gammas
 
 

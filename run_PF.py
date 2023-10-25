@@ -13,8 +13,8 @@ from time import time as TIME
 import numpy as np
 from numpy.random import RandomState, SeedSequence, MT19937
 
-import powerfactory as pf
-from pfcommon import OU, get_simulation_time, get_simulation_variables, run_power_flow
+from pfcommon import OU, get_simulation_time, get_simulation_variables, \
+    run_power_flow, parse_Amat_file, parse_vars_file
 
 
 __all__ = ['compute_fourier_coeffs']
@@ -35,6 +35,20 @@ def compute_fourier_coeffs(F, time, speed, mu=10):
             gammac[i,j] = f/mu*dt*np.cos(2*np.pi*f*t[np.newaxis,idx]) @ (spd[idx,j]-1)
             gammas[i,j] = f/mu*dt*np.sin(2*np.pi*f*t[np.newaxis,idx]) @ (spd[idx,j]-1)
     return gammac,gammas
+
+
+############################################################
+###                   GLOBAL VARIABLES                   ###
+############################################################
+
+# the lists TO_TURN_ON and TO_TURN_OFF contain the objects that will have
+# to be turned on and off at the end of the simulation
+TO_TURN_ON = []
+TO_TURN_OFF = []
+# HVDCs contains the loads that model the HVDC connections in the Sardinia network 
+HVDCs = []
+# HVDC_P contains the default values of absorbed active powert of the HVDCs
+HVDC_P = {}
 
 
 ############################################################
@@ -148,58 +162,110 @@ def _find_SMs_to_toggle(synch_mach):
     return in_service, out_of_service
 
 
-def _apply_SMs_config(SM_config, verbose=False):
-    # synchronous machines
-    SMs = PF_APP.GetCalcRelevantObjects('*.ElmSym')
-    # substations
-    substations = {obj.loc_name: substation for substation in PF_APP.GetCalcRelevantObjects('*.ElmSubstat') \
-                   for obj in substation.GetContents() if obj in SMs}
-    for i,sm in enumerate(SMs):
-        name = sm.loc_name
-        if name in SM_config:
-            if SM_config[name] == sm.outserv:
-                # we have to change the status of the substation where the
-                # synchronous machine is located
-                if SM_config[name] == 1:
-                    # turn ON the substation
-                    if verbose:
-                        print(f'[{i+1:2d}] Turning ON {substations[name].loc_name}')
-                    _turn_on_objects(substations[name].GetContents())
-                else:
-                    # turn OFF the substation
-                    if verbose:
-                        print(f'[{i+1:2d}] Turning OFF (1) {substations[name].loc_name}')
-                    _turn_off_objects(substations[name].GetContents())
-            elif verbose:
-                # do not change the status of the machine
-                print('[{:2d}] {} stays {}'.
-                      format(i+1, sm.loc_name, 'OFF' if sm.outserv else 'ON'))
-        elif not sm.outserv:
-            # turn OFF the substation
-            if verbose:
-                print(f'[{i+1:2d}] Turning OFF (2) {substations[name].loc_name}')
-            _turn_off_objects(substations[name].GetContents())
-        elif verbose:
-            # do not change the status of the machine
-            print('[{:2d}] {} stays {}'.format(i+1, name, 'OFF' if sm.outserv else 'ON'))
+def _apply_configuration(config, verbosity_level):
+    global TO_TURN_ON, TO_TURN_OFF, HVDCs, HVDC_P
+    TO_TURN_ON = [obj for obj in _find_objects(config['out_of_service'], verbosity_level>1) \
+                  if not obj.outserv]
+    _turn_off_objects(TO_TURN_ON, verbosity_level>2)
+
+    in_service = []
+    if 'synch_mach' in config:
+        SM_dict = {}
+        for k,v in config['synch_mach'].items():
+            if isinstance(v, int):
+                SM_dict[k] = v
+            elif isinstance(v, dict):
+                SM = _find_object('*.ElmSym', k)
+                if SM is not None:
+                    for attr,value in v.items():
+                        subattrs = attr.split('.')
+                        obj = SM
+                        for subattr in subattrs[:-1]:
+                            obj = obj.GetAttribute(subattr)
+                        obj.SetAttribute(subattrs[-1], value)
+            else:
+                raise Exception(f'Do not know how to deal with key `{k}` in config["synch_mach"]')
+        in_service,TO_TURN_OFF = _find_SMs_to_toggle(SM_dict)
+    TO_TURN_ON += in_service
+
+    # switch off the objects that are currently in service
+    _turn_off_objects(in_service)
+    # switch on the objects that are currently out of service, i.e., they will
+    # have to be turned off at the end
+    _turn_on_objects(TO_TURN_OFF)
+
+    # Run a power flow analysis
+    PF1 = run_power_flow(PF_APP)
+    P_to_distribute = 0
+    slacks = []
+    for SG in PF1['SGs']:
+        if 'slack' in SG.lower():
+            P_to_distribute += PF1['SGs'][SG]['P']
+            slacks.append(_find_object('*.ElmGenStat', SG))
+    if verbosity_level > 0: print(f'Total power to distribute from {len(slacks)} slack generators: {P_to_distribute:.2f} MW.')
+    
+    # Find the loads that model the HVDC connections
+    HVDCs = [ld for ld in  _get_objects('ElmLod') if ld.typ_id.loc_name == 'HVDCload']
+    idx = np.argsort([hvdc.plini for hvdc in HVDCs])[::-1]
+    HVDCs = [HVDCs[i] for i in idx]
+    HVDC_P = {hvdc.loc_name: hvdc.plini for hvdc in HVDCs}
+    for hvdc in HVDCs:
+        hvdc.plini = max(0., HVDC_P[hvdc.loc_name] - P_to_distribute)
+        P_to_distribute -= HVDC_P[hvdc.loc_name] - hvdc.plini
+        print('{}: {:.2f} -> {:.2f} MW'.format(hvdc.loc_name,
+                                               HVDC_P[hvdc.loc_name],
+                                               hvdc.plini))
+        if P_to_distribute <= 1:
+            break
+
+    for slack in slacks:
+        slack.outserv = True
+        TO_TURN_ON.append(slack)
+        
+    PF2 = run_power_flow(PF_APP)
+    for SM in PF1['SMs']:
+        try:
+            if verbosity_level > 0 and \
+                (np.abs(PF1['SMs'][SM]['P'] - PF2['SMs'][SM]['P']) > 0.1 or \
+                 np.abs(PF1['SMs'][SM]['Q'] - PF2['SMs'][SM]['Q']) > 0.1):
+                print('{}: P = {:7.2f} -> {:7.2f} MW, Q = {:7.2f} -> {:7.2f} MVAr'.\
+                      format(SM,
+                             PF1['SMs'][SM]['P'],
+                             PF2['SMs'][SM]['P'],
+                             PF1['SMs'][SM]['Q'],
+                             PF2['SMs'][SM]['Q']))
+        except:
+            pass
+        
+    return PF1, PF2
+
+
+def _restore_network_state(verbose):
+    global TO_TURN_ON, TO_TURN_OFF, HVDCs, HVDC_P
+    for hvdc in HVDCs:
+        hvdc.plini = HVDC_P[hvdc.loc_name]
+    _turn_on_objects (TO_TURN_ON,  verbose)
+    _turn_off_objects(TO_TURN_OFF, verbose)
 
 
 def _compute_measures(fn, verbose=False):
     # synchronous machines
-    num, den = 0, 0
     cnt = 0
     Psm, Qsm = 0, 0
+    H, S, J = {}, {}, {}
     for sm in PF_APP.GetCalcRelevantObjects('*.ElmSym'):
         if not sm.outserv:
+            name = sm.loc_name
             Psm += sm.pgini
             Qsm += sm.qgini
-            H,S = sm.typ_id.h, sm.typ_id.sgn
+            H[name],S[name] = sm.typ_id.h, sm.typ_id.sgn
+            J[name],polepairs = sm.typ_id.J, sm.typ_id.polepairs
             cnt += 1
             if verbose:
-                print('[{:2d}] {}: S = {:5.1f} MVA, H = {:5.2f} s{}'.
-                      format(cnt, sm.loc_name, S, H, ' [SLACK]' if sm.ip_ctrl else ''))
-            num += H*S
-            den += S
+                print('[{:2d}] {}: S = {:7.1f} MVA, H = {:5.2f} s, J = {:7.0f} kgm^2, polepairs = {}{}'.
+                      format(cnt, sm.loc_name, S[name], H[name], J[name], polepairs, ' [SLACK]' if sm.ip_ctrl else ''))
+            #num += H*S
+            #den += S
         elif sm.ip_ctrl and verbose:
             print('{}: SM SLACK OUT OF SERVICE'.format(sm.loc_name))
     # static generators
@@ -216,9 +282,10 @@ def _compute_measures(fn, verbose=False):
         if not load.outserv:
             Pload += load.plini
             Qload += load.qlini
-    H = num / den
-    E = num
-    M = 2 * num / fn
+    Etot = np.sum([H[k]*S[k] for k in H])
+    Stot = np.sum(list(S.values()))
+    Htot = Etot / Stot
+    Mtot = 2 * Etot / fn
     if verbose:
         print('  P load: {:8.1f} MW'.format(Pload))
         print('  Q load: {:8.1f} MVAr'.format(Qload))
@@ -226,11 +293,11 @@ def _compute_measures(fn, verbose=False):
         print('    Q SM: {:8.1f} MVAr'.format(Qsm))
         print('    P SG: {:8.1f} MW'.format(Psg))
         print('    Q SG: {:8.1f} MVAr'.format(Qsg))
-        print('    Stot: {:8.1f} MVA'.format(den))
-        print(' INERTIA: {:8.1f} s.'.format(H))
-        print('  ENERGY: {:8.1f} MJ.'.format(E))
-        print('MOMENTUM: {:8.1f} MJ s.'.format(M))
-    return H,E,M,den,Pload,Qload,Psm,Qsm,Psg,Qsg
+        print('    Stot: {:8.1f} MVA'.format(Stot))
+        print(' INERTIA: {:8.1f} s.'.format(Htot))
+        print('  ENERGY: {:8.1f} MJ.'.format(Etot))
+        print('MOMENTUM: {:8.1f} MJ s.'.format(Mtot))
+    return Htot,Etot,Mtot,Stot,H,S,J,Pload,Qload,Psm,Qsm,Psg,Qsg
 
 
 def _set_vars_to_save(record_map, verbose=False):
@@ -559,67 +626,9 @@ def run_tran():
         sys.exit(1)
 
 
-    # the lists to_turn_on and to_turn_off contain the objects that will have
-    # to be turned on and off at the end of the simulation
-    to_turn_on = [obj for obj in _find_objects(config['out_of_service'], verbosity_level>1) \
-                  if not obj.outserv]
-    _turn_off_objects(to_turn_on, verbosity_level>2)
+    PF1, PF2 = _apply_configuration(config, verbosity_level)
 
-    in_service, to_turn_off = [], []
-    if 'synch_mach' in config:
-        in_service,to_turn_off = _find_SMs_to_toggle(config['synch_mach'])
-    to_turn_on += in_service
-
-    # switch off the objects that are currently in service
-    _turn_off_objects(in_service)
-    # switch on the objects that are currently out of service, i.e., they will
-    # have to be turned off at the end
-    _turn_on_objects(to_turn_off)
-
-    # Run a power flow analysis
-    PF1 = run_power_flow(PF_APP)
-    P_to_distribute = 0
-    slacks = []
-    for SG in PF1['SGs']:
-        if 'slack' in SG.lower():
-            P_to_distribute += PF1['SGs'][SG]['P']
-            slacks.append(_find_object('*.ElmGenStat', SG))
-    if verbosity_level > 0: print(f'Total power to distribute from {len(slacks)} slack generators: {P_to_distribute:.2f} MW.')
-    
-    # Find the loads that model the HVDC connections
-    HVDCs = [ld for ld in  _get_objects('ElmLod') if ld.typ_id.loc_name == 'HVDCload']
-    idx = np.argsort([hvdc.plini for hvdc in HVDCs])[::-1]
-    HVDCs = [HVDCs[i] for i in idx]
-    HVDC_P = {hvdc.loc_name: hvdc.plini for hvdc in HVDCs}
-    for hvdc in HVDCs:
-        hvdc.plini = max(0., HVDC_P[hvdc.loc_name] - P_to_distribute)
-        P_to_distribute -= HVDC_P[hvdc.loc_name] - hvdc.plini
-        print('{}: {:.2f} -> {:.2f} MW'.format(hvdc.loc_name,
-                                               HVDC_P[hvdc.loc_name],
-                                               hvdc.plini))
-        if P_to_distribute <= 1:
-            break
-
-    for slack in slacks:
-        slack.outserv = True
-        to_turn_on.append(slack)
-        
-    PF2 = run_power_flow(PF_APP)
-    for SM in PF1['SMs']:
-        try:
-            if verbosity_level > 0 and \
-                (np.abs(PF1['SMs'][SM]['P'] - PF2['SMs'][SM]['P']) > 0.1 or \
-                 np.abs(PF1['SMs'][SM]['Q'] - PF2['SMs'][SM]['Q']) > 0.1):
-                print('{}: P = {:7.2f} -> {:7.2f} MW, Q = {:7.2f} -> {:7.2f} MVAr'.\
-                      format(SM,
-                             PF1['SMs'][SM]['P'],
-                             PF2['SMs'][SM]['P'],
-                             PF1['SMs'][SM]['Q'],
-                             PF2['SMs'][SM]['Q']))
-        except:
-            pass
-
-    inertia,energy,momentum,S,Pload,Qload,Psm,Qsm,Psg,Qsg = \
+    Htot,Etot,Mtot,Stot,H,S,J,Pload,Qload,Psm,Qsm,Psg,Qsg = \
         _compute_measures(grid.frnom, verbosity_level>0)
 
     def check_matches(load, patterns, limits):
@@ -665,9 +674,6 @@ def run_tran():
         res, _ = _set_vars_to_save(config['record'], verbosity_level>2)
         sim,dur,err = _tran(tstop, verbosity_level>1)
 
-        for hvdc in HVDCs:
-            hvdc.plini = HVDC_P[hvdc.loc_name]
-
         interval = (0, None)
         time,data = _get_data(res, config['record'], project, interval, dt, verbosity_level>1)
         attributes, device_names = _get_attributes(config['record'], verbosity_level>2)
@@ -675,10 +681,11 @@ def run_tran():
         blob = {'config': config,
                 'seed': seed,
                 'OU_seeds': seeds,
-                'inertia': inertia,
-                'energy': energy,
-                'momentum': momentum,
-                'S': S,
+                'inertia': Htot,
+                'energy': Etot,
+                'momentum': Mtot,
+                'Stot': Stot,
+                'H': H, 'S': S, 'J': J,
                 'Psm': Psm, 'Qsm': Qsm,
                 'Psg': Psg, 'Qsg': Qsg,
                 'Pload': Pload, 'Qload': Qload,
@@ -696,8 +703,8 @@ def run_tran():
 
     for load in stoch_loads:
         load.clean(verbosity_level>2)
-    _turn_on_objects (to_turn_on,  verbosity_level>2)
-    _turn_off_objects(to_turn_off, verbosity_level>2)
+
+    _restore_network_state(verbosity_level>2)
 
     if send_email:
         ### send an email to let the recipients know that the job has finished
@@ -757,6 +764,136 @@ def run_AC_analysis():
         sys.exit(1)
     config = json.load(open(config_file, 'r'))
 
+    project_name = '\\Terna_Inerzia\\' + config['project_name']
+    project = _activate_project(project_name, verbosity_level>0)
+    _print_network_info()
+
+    # we can't use _find_object because grids do not have an .outserv flag
+    found = False
+    for grid in PF_APP.GetCalcRelevantObjects('*.ElmNet'):
+        if grid.loc_name == config['grid_name']:
+            if verbosity_level > 0:
+                print('Found grid named `{}`.'.format(config['grid_name']))
+            found = True
+            break
+    if not found:
+        print('Cannot find a grid named `{}`.'.format(config['grid_name']))
+        sys.exit(1)
+
+    PF1, PF2 = _apply_configuration(config, verbosity_level)
+    
+    Htot,Etot,Mtot,Stot,H,S,J,Pload,Qload,Psm,Qsm,Psg,Qsg = \
+        _compute_measures(grid.frnom, verbosity_level>0)
+    
+    try:
+        outdir = config['outdir']
+        if not os.path.isdir(outdir):
+            os.mkdir(outdir)
+    except:
+        outdir = '.'
+        
+    if outfile is None:
+        outfile = os.path.join(outdir, 'AC_' + config['project_name'] + '.npz')
+    if os.path.isfile(outfile) and not force:
+        print(f'{progname}: output file `{outfile}` exists: use -f to overwrite.')
+        sys.exit(1)
+
+    modal_analysis = PF_APP.GetFromStudyCase('ComMod')
+    # modal_analysis.cinitMode          = 1
+    modal_analysis.iSysMatsMatl       = 1
+    modal_analysis.iEvalMatl          = 1
+    modal_analysis.output_type        = 1
+    modal_analysis.repBufferAndExtDll = 1
+    modal_analysis.repConstantStates  = 1
+    modal_analysis.dirMatl            = outdir
+    sys.stdout.write('Running modal analysis... ')
+    sys.stdout.flush()
+    err = modal_analysis.Execute()
+
+    _restore_network_state(verbosity_level>2)
+
+    if err:
+        print('ERROR!')
+    else:
+        sys.stdout.write('done.\nSaving data... ')
+        sys.stdout.flush()
+        vars_file = os.path.join(outdir, 'VariableToIdx_Amat.txt')
+        A_file = os.path.join(outdir, 'Amat.mtl')
+        cols,var_names,model_names = parse_vars_file(vars_file)
+        A = parse_Amat_file(A_file)
+        omega_col_idx, = np.where([name == 'speed' for name in var_names])
+        gen_names = [os.path.splitext(os.path.basename(model_names[i]))[0].split('__')[0] \
+                     for i in omega_col_idx]
+        data = {'config': config,
+                'inertia': Htot,
+                'energy': Etot,
+                'momentum': Mtot,
+                'Stot': Stot,
+                'H': H, 'S': S, 'J': J,
+                'Psm': Psm, 'Qsm': Qsm,
+                'Psg': Psg, 'Qsg': Qsg,
+                'Pload': Pload, 'Qload': Qload,
+                'PF_with_slack': PF1,
+                'PF_without_slack': PF2,
+                'A': A, 'var_names': var_names,
+                'model_names': model_names,
+                'omega_col_idx': omega_col_idx,
+                'gen_names': gen_names}
+        np.savez_compressed(outfile, **data)
+        print('done.')
+
+
+############################################################
+###                 AC TRAN ANALYSIS                     ###
+############################################################
+
+
+def run_AC_tran_analysis():
+    
+    def usage(exit_code=None):
+        print(f'usage: {progname} AC-tran [-f | --force] [-o | --outfile <filename>] [-v | --verbose <level>] config_file')
+        if exit_code is not None:
+            sys.exit(exit_code)
+            
+    force = False
+    outfile = None
+    verbosity_level = 1
+
+    i = 2
+    n_args = len(sys.argv)
+    while i < n_args:
+        arg = sys.argv[i]
+        if arg in ('-h','--help'):
+            usage(0)
+        elif arg in ('-f', '--force'):
+            force = True
+        elif arg in ('-o', '--outfile'):
+            i += 1
+            outfile = sys.argv[i]
+        elif arg in ('-v', '--verbose'):
+            i += 1
+            verbosity_level = int(sys.argv[i])
+        elif arg[0] == '-':
+            print(f'{progname}: unknown option `{arg}`')
+            sys.exit(1)
+        else:
+            break
+        i += 1
+    
+    if i == n_args:
+        print('You must specify a configuration file')
+        sys.exit(1)
+    if i == n_args-1:
+        config_file = sys.argv[i]
+    else:
+        print('Arguments after project name are not allowed')
+        sys.exit(1)
+
+    if not os.path.isfile(config_file):
+        print('{}: {}: no such file.'.format(progname, config_file))
+        sys.exit(1)
+    config = json.load(open(config_file, 'r'))
+
     F_start, F_stop = config['F_log10']
     steps_per_decade = config['steps_per_decade']
     project_name = config['project_name']
@@ -789,17 +926,9 @@ def run_AC_analysis():
         print('Cannot find a grid named `{}`.'.format(config['grid_name']))
         sys.exit(1)
 
-    to_turn_on = [obj for obj in _find_objects(config['out_of_service'], verbosity_level>1) \
-                  if not obj.outserv]
-    _turn_off_objects(to_turn_on, verbosity_level>2)
-    if 'synch_mach' in config:
-        in_service,to_turn_off = _find_SMs_to_toggle()
-        to_turn_on += in_service
-        _apply_SMs_config(config['synch_mach'], verbosity_level>1)
-    else:
-        to_turn_off = []
-
-    inertia,energy,momentum,S,Pload,Qload,Psm,Qsm,Psg,Qsg = \
+    PF1, PF2 = _apply_configuration(config, verbosity_level)
+    
+    Htot,Etot,Mtot,Stot,H,S,J,Pload,Qload,Psm,Qsm,Psg,Qsg = \
         _compute_measures(grid.frnom, verbosity_level>0)
 
     n = int(F_stop - F_start) * steps_per_decade + 1
@@ -842,13 +971,16 @@ def run_AC_analysis():
     if len(time) > 0:
         attributes, device_names = _get_attributes(config['record'], verbosity_level>2)
         blob = {'config': config,
-                'inertia': inertia,
-                'energy': energy,
-                'momentum': momentum,
-                'S': S,
+                'inertia': Htot,
+                'energy': Etot,
+                'momentum': Mtot,
+                'Stot': Stot,
+                'H': H, 'S': S, 'J': J,
                 'Psm': Psm, 'Qsm': Qsm,
                 'Psg': Psg, 'Qsg': Qsg,
                 'Pload': Pload, 'Qload': Qload,
+                'PF_with_slack': PF1,
+                'PF_without_slack': PF2,
                 'F': F,
                 'time': np.array(time, dtype=object),
                 'data': data,
@@ -857,8 +989,8 @@ def run_AC_analysis():
         np.savez_compressed(outfile, **blob)
 
     sin_load.clean(verbosity_level>1)
-    _turn_on_objects(to_turn_on, verbosity_level>2)
-    _turn_off_objects(to_turn_off, verbosity_level>2)
+
+    _restore_network_state(verbosity_level>2)
 
     ### send an email to let the recipients know that the job has finished
     with open(config_file, 'r') as fid:
@@ -988,6 +1120,7 @@ def help():
         print('Available commands are:')
         print('   tran           Run a transient simulation (with stochastic loads)')
         print('   AC             Run a frequency scan analysis.')
+        print('   AC-tran        Run a frequency scan analysis using numerical integration.')
         print('   load-step      Run a load step simulation.')
         print('')
         print('Type `{} help <command>` for help about a specific command.'.format(progname))
@@ -999,11 +1132,14 @@ def help():
 
 
 # all the commands currently implemented
-commands = {'help': help, 'AC': run_AC_analysis, 'load-step': run_load_step_sim,
+commands = {'help': help,
+            'AC': run_AC_analysis,
+            'AC-tran': run_AC_tran_analysis,
+            'load-step': run_load_step_sim,
             'tran': run_tran}
 
 if __name__ == '__main__':
-    if len(sys.argv) == 1 or sys.argv[1] in ('-h','--help'):
+    if len(sys.argv) == 1 or sys.argv[1] in ('-h','--help', 'help'):
         commands['help']()
         sys.exit(0)
     if not sys.argv[1] in commands:
@@ -1011,8 +1147,13 @@ if __name__ == '__main__':
               format(progname, sys.argv[1], progname))
         sys.exit(1)
     ### Get the PowerFactory PF_APPlication
+    import powerfactory as pf
     global PF_APP
+    msg = 'Getting PowerFactory application... '
+    sys.stdout.write(msg)
+    sys.stdout.flush()
     PF_APP = pf.GetApplication()
+    sys.stdout.write('\b' * len(msg))
     if PF_APP is None:
         print('Cannot get PowerFactory application.')
         sys.exit(1)

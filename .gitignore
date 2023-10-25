@@ -124,3 +124,8 @@ PF/Stochastic_load.txt
 *.dat
 Notebooks/IEEE39_graph.txt
 PF/Sinusoidal_load.txt
+*.xlsx
+*.csv
+*.mat
+*.txt
+*.pan

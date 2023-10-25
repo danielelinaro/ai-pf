@@ -1,17 +1,16 @@
 {
     "project_name": "V2020_Rete_Sardegna_2021_06_03cr_AC",
     "grid_name": "Grid",
-    "load_name": "EqX_MIMC_I2201TR1_____LOAD____",
 	"library_name": "Library",
 	"user_models_name": "User Defined Models",
 	"frame_name": "TimeVaryingLoadFrame",
-	"out_of_service": {
-		"ElmGenstat": ["SLACK_PSOCTI2202_1", "SLACK_SULCTI2201_2"]
-	},
+	"out_of_service": {"ElmGenstat": []},
+    "load_name": "EqX_MIMC_I2201TR1_____LOAD____",
+	"synch_mach": {"SULCTI0202GGR2____GEN_____": 0},
 	"record": {
 		"ElmSym": {
 			"names": "*",
-			"vars": ["s:xspeed", "c:fi"],
+			"vars": ["s:xspeed", "s:pgt", "c:fi"],
 			"attrs": ["loc_name", "pgini", "qgini", "typ_id.h", "typ_id.sgn"],
 			"devs_name": "gen"
 		},
@@ -42,8 +41,8 @@
 		}
 	},
 	"F_log10": [-3, 1],
-	"steps_per_decade": 10,
-	"dP": 0.3,
+	"steps_per_decade": 20,
+	"dP": 0.1,
 	"dt": 10e-3,
 	"ttran": 200,
 	"n_periods": 3,

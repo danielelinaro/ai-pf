@@ -5,14 +5,15 @@ import tables
 import numpy as np
 
 __all__ = ['BaseParameters', 'AutomaticVoltageRegulator', 'TurbineGovernor',
-           'PowerLoad', 'PowerGenerator', 'PowerPlant', 'PowerBus', 'PowerTransformer',
-           'PowerLine', 'Shunt', 'SeriesCapacitor', 'CommonImpedance',
+           'Load', 'SynchronousMachine', 'PowerPlant', 'Bus', 'Transformer',
+           'Line', 'Shunt', 'SeriesCapacitor', 'CommonImpedance',
            'get_simulation_variables', 'get_simulation_time', 'get_simulation_dt',
            'get_ID', 'get_line_bus_IDs', 'normalize', 'OU', 'OU_2', 'run_power_flow',
            'print_power_flow', 'correct_traces', 'find_element_by_name',
            'is_voltage', 'is_power', 'is_frequency', 'is_current', 
            'compute_generator_inertias', 'sort_objects_by_name', 'get_objects',
-           'make_full_object_name', 'build_network_graph', 'Node', 'Edge']
+           'make_full_object_name', 'build_network_graph', 'Node', 'Edge',
+           'parse_Amat_file', 'parse_vars_file', 'compute_TF']
 
 
 class BaseParameters (tables.IsDescription):
@@ -99,28 +100,37 @@ class TurbineGovernor (object):
         return s
 
 
-class PowerGenerator (object):
-    def __init__(self, generator):
+class SynchronousMachine (object):
+    def __init__(self, sm):
+        if not sm.ip_ctrl and sm.av_mode != 'constv':
+            raise Exception(f'Synchronous machine {sm.loc_name} is not a PV machine and is not the slack')
         par_names = {'pgini': 'pg', 'usetp': 'vg', 'Pmax_uc': 'pmax', 'Pmin_uc': 'pmin',
                 'q_min': 'qmin', 'q_max': 'qmax', 'ngnum': 'num', 'ip_ctrl': 'ref_gen'}
         type_par_names = {'sgn': 'prating', 'ugn': 'vrating', 'cosn': 'cosn', 'h': 'h',
-                     'xl': 'xl', 'xd': 'xd', 'xq': 'xq', 'rstr': 'ra',
-                     'xrl': 'xrl', 'xrlq': 'xrlq', 'tds0': 'td0p', 'tqs0': 'tq0p',
-                     'xds': 'xdp', 'xqs': 'xqp', 'tdss0': 'td0s', 'tqss0': 'tq0s',
-                     'xdss': 'xds', 'xqss': 'xqs', 'dpe': 'd', 'iturbo': 'rotor_type'}
-        data = _read_element_parameters(generator, par_names, type_par_names)
+                          'iturbo': 'rotor_type', 'rstr': 'ra', 'dpe': 'd'}
+        self.model_type = sm.typ_id.model_inp
+        if self.model_type == 'det':
+            self.type_id = 6
+            for key in ('xl','xd','xq','xrl','xrlq'):
+                type_par_names[key] = key
+            type_par_names['tds0']  = 'td0p'
+            type_par_names['tqs0']  = 'tq0p'
+            type_par_names['xds']   = 'xdp'
+            type_par_names['xqs']   = 'xqp'
+            type_par_names['tdss0'] = 'td0s'
+            type_par_names['tqss0'] = 'tq0s'
+            type_par_names['xdss']  = 'xds'
+            type_par_names['xqss']  = 'xqs'
+        elif self.model_type == 'cls':
+            self.type_id = 2
+            type_par_names['xstr']  = 'xdp'
+        else:
+            raise Exception('Unknown model type: "{}"'.format(self.model_type))
+        data = _read_element_parameters(sm, par_names, type_par_names)
         for k,v in data.items():
             self.__setattr__(k, v)
         if self.ref_gen:
             print(f'{self.name} is the slack generator.')
-        if self.rotor_type == 0:
-            # salient pole
-            self.type_id = 52
-        elif self.rotor_type == 1:
-            # round rotor
-            self.type_id = 6
-        else:
-            raise Exception('Unknown rotor type: "{}"'.format(self.rotor_type))
         self.bus_id = int(re.findall('\d+', self.terminals[0])[0])
         self.pg /= self.prating
         self.pmax /= self.prating
@@ -141,14 +151,12 @@ class PowerGenerator (object):
         s += 'vg={:g} prating={:.6e} vrating={:.6e} \\\n\t\t' \
             .format(self.vg, self.prating, self.vrating) + \
             'qmax={:g} qmin={:g} pmax={:g} pmin={:g} \\\n\t\t' \
-            .format(self.qmax, self.qmin, self.pmax, self.pmin) + \
-            'xdp={:g} xd={:g} xq={:g} xds={:g} xqs={:g} ra={:g} \\\n\t\t' \
-            .format(self.xdp, self.xd, self.xq, self.xds, self.xqs, self.ra) + \
-            'td0p={:g} td0s={:g} tq0s={:g} xl={:g} h={:g} d={:g} ' \
-            .format(self.td0p, self.td0s, self.tq0s, self.xl, self.h, self.d)
-        if self.rotor_type == 1:
-            # round rotor
-            s+= 'xqp={:g} tq0p={:g}'.format(self.xqp, self.tq0p)
+            'ra={:g} h={:g} d={:g} xdp={:g} ' \
+            .format(self.qmax, self.qmin, self.pmax, self.pmin, self.ra, self.h, self.d, self.xdp)
+        if self.type_id == 6:
+            s += 'xd={:g} xq={:g} xds={:g} xqs={:g} \\\n\t\t'.format(self.xd, self.xq, self.xds, self.xqs) + \
+            'td0p={:g} td0s={:g} tq0s={:g} xl={:g} \\\n\t\t'.format(self.td0p, self.td0s, self.tq0s, self.xl) + \
+            'xqp={:g} tq0p={:g} '.format(self.xqp, self.tq0p)
         return s
     
     def __str__(self):
@@ -160,10 +168,11 @@ class PowerPlant (object):
         self.name = power_plant.loc_name
         slots = power_plant.pblk
         elements = power_plant.pelm
+        self.sm, self.avr, self.gov = None, None, None
         for slot,element in zip(slots, elements):
             if element is not None:
-                if 'sym' in slot.loc_name.lower():
-                    self.gen = PowerGenerator(element)
+                if 'sym' in slot.loc_name.lower() or 'sm' in slot.loc_name.lower():
+                    self.sm = SynchronousMachine(element)
                 elif 'avr' in slot.loc_name.lower():
                     self.avr = AutomaticVoltageRegulator(element, type_name='IEEEEXC1')
                 elif 'gov' in slot.loc_name.lower():
@@ -177,23 +186,28 @@ class PowerPlant (object):
                     if type_name is None:
                         raise Exception(f'Unknown governor type "{name}"')
                     self.gov = TurbineGovernor(element, type_name)
-        self.avr.vrating = self.gen.vrating
+        if self.sm is None:
+            raise Exception('A synchronous machine must be present in a power plant')
+        if self.gov is None:
+            raise Exception('A turbine governor must be present in a power plant')
+        if self.avr is not None:
+            self.avr.vrating = self.gen.vrating
                     
     def __str__(self):
-        bus_id = self.gen.bus_id
-        avr_str = self.avr.fmt.format(f'bus{bus_id}', f'avr{bus_id}')
+        bus_id = self.sm.bus_id
+        avr_str = self.avr.fmt.format(f'bus{bus_id}', f'avr{bus_id}') if self.avr is not None else ''
         if self.gov.type_name.upper() == 'IEEEG1':
             gov_str = self.gov.fmt.format(f'php{bus_id}', f'omega{bus_id}')
-            gen_str = self.gen.fmt.format(f'avr{bus_id}', f'php{bus_id}')
+            sm_str = self.sm.fmt.format(f'avr{bus_id}' if self.avr is not None else 'gnd', f'php{bus_id}')
         elif self.gov.type_name.upper() == 'IEEEG3':
             gov_str = self.gov.fmt.format(f'pm{bus_id}', f'omega{bus_id}')
-            gen_str = self.gen.fmt.format(f'avr{bus_id}', f'pm{bus_id}')
+            sm_str = self.sm.fmt.format(f'avr{bus_id}' if self.avr is not None else 'gnd', f'pm{bus_id}')
         else:
             raise Exception(f'Unknown governor type "{self.gov.type_name}"')
-        return avr_str + '\n\n' + gov_str + '\n\n' + gen_str
+        return avr_str + '\n\n' + gov_str + '\n\n' + sm_str
 
 
-class PowerLoad (object):
+class Load (object):
     def __init__(self, load):
         data = _read_element_parameters(load, {'plini': 'pc', 'qlini': 'qc'})
         for k,v in data.items():
@@ -208,7 +222,7 @@ class PowerLoad (object):
                         _bus_name_to_terminal_name(self.terminals[0]),
                         self.pc, self.qc, self.vrating)
 
-class PowerLine (object):
+class Line (object):
     def __init__(self, line):
         par_names = {'dline': 'length', 'nlnum': 'num'}
         type_par_names = {'uline': 'vrating', 'rline': 'r', 'xline': 'x', 'bline': 'b'}
@@ -231,7 +245,7 @@ class PowerLine (object):
                        _bus_name_to_terminal_name(self.terminals[1]),
                        self.utype, self.r, self.x, self.b, self.vrating)
 
-class SeriesCapacitor (PowerLine):
+class SeriesCapacitor (Line):
     def __init__(self, capacitor):
         par_names = {'ucn': 'vrating', 'xcap': 'x'}
         data = _read_element_parameters(capacitor, par_names, bus_names=['bus1', 'bus2'])
@@ -281,7 +295,7 @@ class CommonImpedance (object):
                        _bus_name_to_terminal_name(self.terminals[1]),
                        self.utype, self.r, self.x, self.prating, self.vrating)
 
-class PowerTransformer (object):
+class Transformer (object):
     def __init__(self, transformer, voltages_from='type'):
         par_names = {'ntnum': 'num', 'nntap': 'nntap', 't:dutap': 'tappc'}
         type_par_names = {'r1pu': 'r', 'x1pu': 'x', 'strn': 'prating'}
@@ -312,7 +326,7 @@ class PowerTransformer (object):
                        self.r, self.x, self.a, self.kt,
                        self.prating, self.vrating)
     
-class PowerBus (object):
+class Bus (object):
     def __init__(self, bus):
         data = _read_element_parameters(bus, {'uknom': 'vb'}, bus_names=None)
         for k,v in data.items():
@@ -793,12 +807,12 @@ def run_power_flow(app, project_folder=None, study_case_name=None, verbose=False
 
 def print_power_flow(results):
     print('\n===== Generators =====')
-    for name in sorted(list(results['generators'].keys())):
-        data = results['generators'][name]
+    for name in sorted(list(results['SMs'].keys())):
+        data = results['SMs'][name]
         if name not in ('Ptot','Qtot'):
             print(f'{name}: P = {data["P"]:7.2f} MW, Q = {data["Q"]:6.2f} MVAR, ' + 
                   f'I = {data["I"]:6.3f} kA, V = {data["V"]:6.3f} kV.')
-    P, Q = results["generators"]["Ptot"], results["generators"]["Qtot"]
+    P, Q = results["SMs"]["Ptot"], results["SMs"]["Qtot"]
     if P > 1e4:
         coeff, unit = 1e-3, 'G'
     else:
@@ -838,3 +852,63 @@ def print_power_flow(results):
         data = results['buses'][name]
         print(f'{name}: voltage = {data["voltage"]:5.3f} pu, V = {data["Vl"]:7.3f} kV, ' + \
               f'Pflow = {data["P"]["flow"]*coeff:7.2f} {unit}W, Qflow = {data["Q"]["flow"]*coeff:7.2f} {unit}VA.')
+
+
+def parse_Amat_file(filename):
+    rows,cols,vals = [], [], []
+    with open(filename, 'r') as fid:
+        for line in fid:
+            row,col,val = re.findall('-?\d+\.?\d*e?[+-]?\d*', line)
+            rows.append(int(row)-1)
+            cols.append(int(col)-1)
+            vals.append(float(val))
+    n = max(max(rows), max(cols)) + 1
+    A = np.zeros((n,n))
+    for row,col,val in zip(rows,cols,vals):
+        A[row,col] = val
+    return A
+
+def parse_vars_file(filename):
+    def parse_line(line):
+        col = int(re.findall('\d+', line)[0]) - 1
+        var_name = re.findall('".*"', line)[0][1:-1]
+        for match in re.finditer('[a-zA-Z]+', line):
+            start = match.span()[0]
+            break
+        for match in re.finditer('"', line):
+            stop = match.span()[0]
+            break
+        model_name = line[start:stop].strip()
+        return col,model_name,var_name
+    
+    cols, var_names, model_names = [], [], []
+    with open(filename, 'r') as fid:
+        for L in fid:
+            line = L.strip()
+            if line != '' and ';' not in line:
+                col,model_name,var_name = parse_line(line)
+                cols.append(col)
+                model_names.append(model_name)
+                var_names.append(var_name)
+    return np.array(cols), var_names, model_names
+
+
+def compute_TF(J, fmin, fmax, Nf, col_idx=0):
+    from tqdm import tqdm
+    if np.isscalar(col_idx):
+        col_idx = [col_idx]
+    F = np.logspace(fmin, fmax, Nf)
+    Nv = J.shape[0]
+    I = np.eye(Nv)
+    M = np.zeros((Nf, Nv, Nv), dtype=complex)
+    TF = np.zeros((Nf, Nv), dtype=complex)
+    for i in tqdm(range(Nf), ascii=True, ncols=70):
+        M[i,:,:] = np.linalg.inv(-J + 1j * 2 * np.pi * F[i] * I)
+        # using M[i,:,col_idx] mixes basic slicing and advanced indexing,
+        # which causes numpy to rearrange the columns indexed by col_idx
+        # as rows in the resulting matrix. See this link for further
+        # explanations: https://stackoverflow.com/questions/48034413/numpy-indexing-ambiguity-in-3d-arrays
+        TF[i,:] = M[i:i+1,:,col_idx].sum(axis=2)
+        # alternatively:
+        #TF[i,:] = M[i,:,col_idx].T.sum(axis=1)
+    return TF,F,M
