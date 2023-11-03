@@ -13,7 +13,8 @@ __all__ = ['BaseParameters', 'AutomaticVoltageRegulator', 'TurbineGovernor',
            'is_voltage', 'is_power', 'is_frequency', 'is_current', 
            'compute_generator_inertias', 'sort_objects_by_name', 'get_objects',
            'make_full_object_name', 'build_network_graph', 'Node', 'Edge',
-           'parse_Amat_file', 'parse_vars_file', 'compute_TF']
+           'parse_sparse_matrix_file', 'parse_Amat_vars_file', 'parse_Jacobian_vars_file',
+           'compute_TF']
 
 
 class BaseParameters (tables.IsDescription):
@@ -854,7 +855,7 @@ def print_power_flow(results):
               f'Pflow = {data["P"]["flow"]*coeff:7.2f} {unit}W, Qflow = {data["Q"]["flow"]*coeff:7.2f} {unit}VA.')
 
 
-def parse_Amat_file(filename):
+def parse_sparse_matrix_file(filename):
     rows,cols,vals = [], [], []
     with open(filename, 'r') as fid:
         for line in fid:
@@ -868,7 +869,7 @@ def parse_Amat_file(filename):
         A[row,col] = val
     return A
 
-def parse_vars_file(filename):
+def parse_Amat_vars_file(filename):
     def parse_line(line):
         col = int(re.findall('\d+', line)[0]) - 1
         var_name = re.findall('".*"', line)[0][1:-1]
@@ -891,6 +892,39 @@ def parse_vars_file(filename):
                 model_names.append(model_name)
                 var_names.append(var_name)
     return np.array(cols), var_names, model_names
+
+
+def parse_Jacobian_vars_file(filename):
+    vars_idx = {}
+    state_vars, voltages, currents, signals = {}, {}, {}, {}
+    with open(filename, 'r') as fid:
+        for line in fid:
+            line = line.strip()
+            if len(line) == 0:
+                continue
+            elif ';' in line:
+                tokens = [token.lstrip() for token in line.split(';')]
+                var_type = tokens[2].lower()
+            else:
+                idx = int(re.findall('\d+', line)[0]) - 1
+                var_name = re.findall('"[a-zA-Z0-9:]*"', line)[0][1:-1]
+                obj_name = re.findall('[ ]+.*[ ]+', line)[0].strip().split(os.path.sep)[-1].split('.')[0]
+                if obj_name not in vars_idx:
+                    vars_idx[obj_name] = {}
+                    state_vars[obj_name] = []
+                    voltages[obj_name] = []
+                    currents[obj_name] = []
+                    signals[obj_name] = []
+                vars_idx[obj_name][var_name] = idx
+                if 'state' in var_type:
+                    state_vars[obj_name].append(var_name)
+                elif 'voltage' in var_type:
+                    voltages[obj_name].append(var_name)
+                elif 'current' in var_type:
+                    currents[obj_name].append(var_name)
+                elif 'signal' in var_type:
+                    signals[obj_name].append(var_name)
+    return vars_idx,state_vars,voltages,currents,signals
 
 
 def compute_TF(J, fmin, fmax, Nf, col_idx=0):

@@ -3,7 +3,5 @@
     "grid_name": "Grid",
 	"out_of_service": {"ElmGenstat": []},
 	"synch_mach": {"FSACTI0201GGR3____GEN_____": {"typ_id.h": 5.8}},
-	"F_log10": [-6, 2],
-	"steps_per_decade": 100,
 	"outdir": "C:\\Users\\Terna_Inerzia\\Desktop\\modal_analysis\\Sardinia\\FSACTI0201GGR3_double_H"
 }

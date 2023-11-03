@@ -5,7 +5,7 @@
 	"user_models_name": "User Defined Models",
 	"frame_name": "TimeVaryingLoadFrame",
 	"out_of_service": {"ElmGenstat": []},
-	"synch_mach": {"FSACTI0201GGR3____GEN_____": {"typ_id.h": 2.9}},
+	"synch_mach": {"FSACTI0201GGR3____GEN_____": {"typ_id.h": 5.8}},
     "stoch_loads": ["^Eq.*_LOAD_.*"],
 	"limits": {"P": [5.0, 1e3], "Q": [5.0, 1e3]},
 	"sigma": {"P": 0.05, "Q": 0.0},

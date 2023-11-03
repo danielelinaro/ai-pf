@@ -1,0 +1,24 @@
+{
+    "project_name": "IEEE39_stoch_const_P_loads",
+    "grid_name": "Grid",
+	"library_name": "Library",
+	"user_models_name": "User Defined Models",
+	"frame_name": "TimeVaryingLoadFrame",
+	"out_of_service": {"ElmGenstat": []},
+	"synch_mach": {"G 02": {"typ_id.h": 8.658}},
+    "stoch_loads": ["Load 03"],
+	"limits": {"P": [5.0, 1e3], "Q": [5.0, 1e3]},
+	"sigma": {"P": 0.05, "Q": 0.0},
+	"tau": {"P": 0.02, "Q": 0.02},
+	"record": {
+		"ElmSym": {
+			"names": "*",
+			"vars": ["s:xspeed", "s:pgt", "c:fi"],
+			"attrs": ["loc_name", "pgini", "qgini", "typ_id.h", "typ_id.sgn"],
+			"devs_name": "gen"
+		}
+	},
+	"seed": 100,
+	"dt": 0.005,
+	"tstop": 12000
+}

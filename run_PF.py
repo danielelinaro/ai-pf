@@ -14,7 +14,8 @@ import numpy as np
 from numpy.random import RandomState, SeedSequence, MT19937
 
 from pfcommon import OU, get_simulation_time, get_simulation_variables, \
-    run_power_flow, parse_Amat_file, parse_vars_file
+    run_power_flow, parse_sparse_matrix_file, parse_Amat_vars_file, \
+        parse_Jacobian_vars_file
 
 
 __all__ = ['compute_fourier_coeffs']
@@ -552,7 +553,8 @@ class OULoad(TimeVaryingLoad):
 def run_tran():
     
     def usage(exit_code=None):
-        print(f'usage: {progname} tran [-f | --force] [-o | --outfile <filename>] [-v | --verbose <level>] config_file')
+        print(f'usage: {progname} tran [-f | --force] [-o | --outfile <filename>]')
+        print( '       ' + ' ' * len(progname) + '      [-v | --verbose <level>] [-m | --email] config_file')
         if exit_code is not None:
             sys.exit(exit_code)
             
@@ -647,7 +649,10 @@ def run_tran():
     n_loads = len(loads)
 
     if verbosity_level > 0:
-        print(f'{len(loads)} loads match the name pattern and have either P or Q within the limits.')
+        if len(loads) == 1:
+            print('One load matches the name pattern and has either P or Q within the limits.')
+        else:
+            print(f'{len(loads)} loads match the name pattern and have either P or Q within the limits.')
         if verbosity_level > 2:
             print('{:^5s} {:<30s} {:^10s} {:^10s}'.format('#', 'Name', 'P [MW]', 'Q [MVAr]'))
             print('=' * 58)
@@ -764,6 +769,19 @@ def run_AC_analysis():
         sys.exit(1)
     config = json.load(open(config_file, 'r'))
 
+    try:
+        outdir = config['outdir']
+        if not os.path.isdir(outdir):
+            os.mkdir(outdir)
+    except:
+        outdir = '.'
+        
+    if outfile is None:
+        outfile = os.path.join(outdir, 'AC_' + config['project_name'] + '.npz')
+    if os.path.isfile(outfile) and not force:
+        print(f'{progname}: output file `{outfile}` exists: use -f to overwrite.')
+        sys.exit(1)
+
     project_name = '\\Terna_Inerzia\\' + config['project_name']
     project = _activate_project(project_name, verbosity_level>0)
     _print_network_info()
@@ -785,19 +803,6 @@ def run_AC_analysis():
     Htot,Etot,Mtot,Stot,H,S,J,Pload,Qload,Psm,Qsm,Psg,Qsg = \
         _compute_measures(grid.frnom, verbosity_level>0)
     
-    try:
-        outdir = config['outdir']
-        if not os.path.isdir(outdir):
-            os.mkdir(outdir)
-    except:
-        outdir = '.'
-        
-    if outfile is None:
-        outfile = os.path.join(outdir, 'AC_' + config['project_name'] + '.npz')
-    if os.path.isfile(outfile) and not force:
-        print(f'{progname}: output file `{outfile}` exists: use -f to overwrite.')
-        sys.exit(1)
-
     modal_analysis = PF_APP.GetFromStudyCase('ComMod')
     # modal_analysis.cinitMode          = 1
     modal_analysis.iSysMatsMatl       = 1
@@ -817,12 +822,18 @@ def run_AC_analysis():
     else:
         sys.stdout.write('done.\nSaving data... ')
         sys.stdout.flush()
-        vars_file = os.path.join(outdir, 'VariableToIdx_Amat.txt')
-        A_file = os.path.join(outdir, 'Amat.mtl')
-        cols,var_names,model_names = parse_vars_file(vars_file)
-        A = parse_Amat_file(A_file)
+        loads = _get_objects('*.ElmLod')
+        load_buses = {}
+        for load in _get_objects('*.ElmLod'):
+            load_buses[load.loc_name] = load.bus1.cterm.loc_name
+        A = parse_sparse_matrix_file(os.path.join(outdir, 'Amat.mtl'))
+        J = parse_sparse_matrix_file(os.path.join(outdir, 'Jacobian.mtl'))
+        cols,var_names,model_names = \
+            parse_Amat_vars_file(os.path.join(outdir,'VariableToIdx_Amat.txt'))
+        vars_idx,state_vars,voltages,currents,signals = \
+            parse_Jacobian_vars_file(os.path.join(outdir,'VariableToIdx_Jacobian.txt'))
         omega_col_idx, = np.where([name == 'speed' for name in var_names])
-        gen_names = [os.path.splitext(os.path.basename(model_names[i]))[0].split('__')[0] \
+        gen_names = [os.path.splitext(os.path.basename(model_names[i]))[0] \
                      for i in omega_col_idx]
         data = {'config': config,
                 'inertia': Htot,
@@ -835,10 +846,14 @@ def run_AC_analysis():
                 'Pload': Pload, 'Qload': Qload,
                 'PF_with_slack': PF1,
                 'PF_without_slack': PF2,
+                'J': J, 'vars_idx': vars_idx,
+                'state_vars': state_vars, 'voltages': voltages,
+                'currents': currents, 'signals': signals,
                 'A': A, 'var_names': var_names,
                 'model_names': model_names,
                 'omega_col_idx': omega_col_idx,
-                'gen_names': gen_names}
+                'gen_names': gen_names,
+                'load_buses': load_buses}
         np.savez_compressed(outfile, **data)
         print('done.')
 
@@ -1149,13 +1164,9 @@ if __name__ == '__main__':
     ### Get the PowerFactory PF_APPlication
     import powerfactory as pf
     global PF_APP
-    msg = 'Getting PowerFactory application... '
-    sys.stdout.write(msg)
-    sys.stdout.flush()
     PF_APP = pf.GetApplication()
-    sys.stdout.write('\b' * len(msg))
     if PF_APP is None:
-        print('Cannot get PowerFactory application.')
+        print('\nCannot get PowerFactory application.')
         sys.exit(1)
     PF_APP.ResetCalculation()
     commands[sys.argv[1]]()

@@ -19,8 +19,10 @@ progname = os.path.basename(sys.argv[0])
 
 def usage(exit_code=None):
     print(f'usage: {progname} [-h | --help] [-m | --fmin <value>] [-M | --fmax <value>]')
-    print( '       ' + ' ' * len(progname) + ' [-N | --n-steps <value>] [--save-mat]')
-    print( '       ' + ' ' * len(progname) + ' [-o <value>] [--force] <files> <directory>')
+    prefix = '       ' + ' ' * (len(progname)+1)
+    print(prefix + '[-N | --n-steps <value>] [--dB <10|20>] [--save-mat]')
+    print(prefix + '[-o | --outfile <value>] [-O | --outdir <value>] [-f | --force]')
+    print(prefix + '[--P] [--Q] [--PQ] -L | --loads load1<,load2,...> file')
     if exit_code is not None:
         sys.exit(exit_code)
 
@@ -30,9 +32,12 @@ if __name__ == '__main__':
     # default values    
     fmin,fmax = -6., 2.
     steps_per_decade = 100
+    dB = 20
     force = False
     save_mat = False
-    outfile = None
+    outdir, outfile = '', None
+    load_names = None
+    use_P_constraint, use_Q_constraint = False, False
 
     i = 1
     n_args = len(sys.argv)
@@ -49,110 +54,141 @@ if __name__ == '__main__':
         elif arg in ('-N', '--n-steps'):
             i += 1
             steps_per_decade = int(sys.argv[i])
-        elif arg == '-o':
+        elif arg in ('-L', '--loads'):
             i += 1
-            outfile= sys.argv[i]
+            load_names = sys.argv[i].split(',')
+        elif arg == '--P':
+            use_P_constraint = True
+        elif arg == '--Q':
+            use_Q_constraint = True
+        elif arg == '--PQ':
+            use_P_constraint = True
+            use_Q_constraint = True
+        elif arg == '--dB':
+            i += 1
+            dB = int(sys.argv[i])
+            if dB not in (10,20):
+                print(f'{progname}: the option to --dB must be either 10 or 20.')
+                sys.exit(1)
+        elif arg in ('-o','--outfile'):
+            i += 1
+            outfile = sys.argv[i]
         elif arg == '--save-mat':
             save_mat = True
         elif arg in ('-f', '--force'):
             force = True
         elif arg[0] == '-':
-            print(f'{progname}: unknown option `{arg}`')
+            print(f'{progname}: unknown option `{arg}`.')
             sys.exit(1)
         else:
             break
         i += 1
 
-    data_files = []
-    for arg in sys.argv[i:]:
-        if arg[0] == '-':
-            print('Options are not allowed after file or directory names.')
-            sys.exit(1)
-        elif os.path.isfile(arg):
-            data_files.append(arg)
-        elif os.path.isdir(arg):
-            for f in sorted(glob.glob(arg + os.path.sep + '*.npz')):
-                data_files.append(f)
-        else:
-            print(f'{progname}: {arg}: no such file or directory.')
-            sys.exit(1)
-
-    if len(data_files) < 2:
-        print('You must specifiy at least two files or a directory.')
+    if i == n_args:
+        print(f'{progname}: you must specify an input file')
         sys.exit(1)
-
+    if i == n_args-1:
+        data_file = sys.argv[i]
+    else:
+        print(f'{progname}: arguments after project name are not allowed')
+        sys.exit(1)
+        
+    if not os.path.isfile(data_file):
+        print(f'{progname}: {data_file}: no such file.')
+        sys.exit(1)
+    
+    if not use_P_constraint and not use_Q_constraint:
+        print(f'{progname}: at least one of --P and --Q must be specified.')
+        sys.exit(1)
+        
     if outfile is None:
-        outfile = 'TF_{}_{}_{}.npz'.format(fmin, fmax, steps_per_decade)
-
-    if os.path.isfile(outfile) and not force:
-        print(f'{progname}: {outfile}: file exists, use -f to overwrite')
+        outdir = os.path.dirname(data_file)
+        if outdir == '':
+            outdir = '.'
+        outfile = os.path.splitext(os.path.basename(data_file))[0] + \
+            '_TF_{}_{}_{}'.format(fmin, fmax, steps_per_decade) + '.npz'
+    if os.path.isfile(os.path.join(outdir, outfile)) and not force:
+        print(f'{progname}: {os.path.join(outdir, outfile)}: file exists, use -f to overwrite.')
         sys.exit(1)
 
     if fmin >= fmax:
-        print('fmin must be < fmax')
+        print(f'{progname}: fmin must be < fmax.')
         sys.exit(1)
     if steps_per_decade <= 0:
-        print('number of steps per decade must be > 0')
+        print(f'{progname}: number of steps per decade must be > 0.')
         sys.exit(1)
 
-    Nf = int(fmax - fmin) * steps_per_decade + 1
-    F = np.logspace(fmin, fmax, Nf)    
+    if load_names is None:
+        print(f'{progname}: you must specify the name of at least one load where the signal is injected.')
+        sys.exit(1)
 
-    data = [np.load(f, allow_pickle=True) for f in data_files]
-    SM_names = [d['gen_names'] for d in data]
-    H = np.array([np.array([d['H'].item()[name] for name in names]) for
-                  d,names in zip(data, SM_names)])
-    S = np.array([np.array([d['S'].item()[name] for name in names]) for
-                  d,names in zip(data,SM_names)])
-    P,Q = [],[]
-    for i,names in enumerate(SM_names):
-        n_SMs = len(names)
-        p,q = np.zeros(n_SMs), np.zeros(n_SMs)
-        PF = data[i]['PF_without_slack'].item()
-        for j,sm in enumerate(names):
-            if sm in PF['SMs']:
-                key = sm
-            else:
-                key = sm + '____GEN_____'
-            p[j] = PF['SMs'][key]['P']
-            q[j] = PF['SMs'][key]['Q']
-        P.append(p)
-        Q.append(q)
+    N_freq = int(fmax - fmin) * steps_per_decade + 1
+    F = np.logspace(fmin, fmax, N_freq)    
 
-    A = np.array([d['A'] for d in data])
-    N,Nv,_ = A.shape
+    data = np.load(data_file, allow_pickle=True)
+    SM_names = data['gen_names']
+    H = np.array([data['H'].item()[name] for name in SM_names])
+    S = np.array([data['S'].item()[name] for name in SM_names])
+    PF = data['PF_without_slack'].item()
+    n_SMs = len(SM_names)
+    P,Q = np.zeros(n_SMs), np.zeros(n_SMs)
+    for i,name in enumerate(SM_names):
+        if name in PF['SMs']:
+            key = name
+        else:
+            key = name + '____GEN_____'
+        P[i] = PF['SMs'][key]['P']
+        Q[i] = PF['SMs'][key]['Q']
 
-    I = np.eye(Nv)
-    M = np.zeros((Nf, Nv, Nv), dtype=complex)    
-    # not all conditions have necessarily the same number of active synchronous generators
-    TF = [np.zeros((Nf, Nv), dtype=complex) for _ in range(N)]
-    for i in range(N):
-        omega_col_idx = data[i]['omega_col_idx']
-        b = np.zeros(Nv)
-        b[omega_col_idx] = H[0] / H[i]
-        for j in tqdm(range(Nf), ascii=True, ncols=70):
-            M[j,:,:] = np.linalg.inv(-A[i] + 1j*2*np.pi*F[j]*I)
-            TF[i][j,:] = M[j,:,:] @ b
-        TF[i] = TF[i][:,omega_col_idx]
-    mag = [20 * np.log10(np.abs(tf)) for tf in TF]
-    phase = [np.angle(tf) for tf in TF]
+    J,A = data['J'], data['A']
+    vars_idx = data['vars_idx'].item()
+    state_vars = data['state_vars'].item()
+    N_vars = J.shape[0]
+    N_state_vars = np.sum([len(v) for v in state_vars.values()])
+    N_algebraic_vars = N_vars - N_state_vars
+    Jfx = J[:N_state_vars, :N_state_vars]
+    Jfy = J[:N_state_vars, N_state_vars:]
+    Jgx = J[N_state_vars:, :N_state_vars]
+    Jgy = J[N_state_vars:, N_state_vars:]
+    Atmp = Jfx - Jfy @ np.linalg.inv(Jgy) @ Jgx
+    assert np.all(np.abs(A-Atmp) < 1e-8)
+
+    I = np.eye(N_state_vars)
+    M = np.zeros((N_freq, N_state_vars, N_state_vars), dtype=complex)    
+    TF = np.zeros((N_freq, N_state_vars), dtype=complex)
+
+    load_buses = data['load_buses'].item()
+    idx = []
+    for load_name in load_names:
+        if load_name not in load_buses:
+            print(f'{progname}: cannot find load `{load_name}`.')
+            sys.exit(0)
+        bus_name = load_buses[load_name]
+        if use_P_constraint:
+            # real part of voltage
+            idx.append(vars_idx[bus_name]['ur'])
+        if use_Q_constraint:
+            # imaginary part of voltage
+            idx.append(vars_idx[bus_name]['ui'])
+    idx = np.array(idx) - N_state_vars
+    v = np.zeros(N_algebraic_vars, dtype=float)
+    v[idx] = 1.0
+    b = -Jfy @ np.linalg.inv(Jgy) @ v
+    for i in tqdm(range(N_freq), ascii=True, ncols=70):
+        M[i,:,:] = np.linalg.inv(-A + 1j*2*np.pi*F[i]*I)
+        TF[i,:] = M[i,:,:] @ b
+    TF = TF[:,data['omega_col_idx']]
+    mag = dB * np.log10(np.abs(TF))
+    phase = np.angle(TF)
     
-    out = {'Htot': np.array([d['inertia'] for d in data]),
-           'Etot': np.array([d['energy'] for d in data]),
-           'Mtot': np.array([d['momentum'] for d in data]),
+    Htot = data['inertia']
+    Etot = data['energy']
+    Mtot = data['momentum']
+    out = {'Htot': Htot, 'Etot': Etot, 'Mtot': Mtot,
            'F': F, 'TF': TF, 'mag': mag, 'phase': phase,
-           'SM_names': SM_names, 'H': H, 'S': S, 'P': P, 'Q': Q}
-    np.savez_compressed(outfile, **out)
+           'SM_names': SM_names, 'H': H, 'S': S, 'P': P, 'Q': Q, 'dB': dB}
+    np.savez_compressed(os.path.join(outdir, outfile), **out)
 
     if save_mat:
         from scipy.io import savemat
-        mout = {}
-        for k,v in out.items():
-            if 'tot' in k:
-                mout[k[0]] = v
-            elif isinstance(v,list):
-                for i in range(N):
-                    mout[f'{k}_{i+1}'] = v[i]
-            else:
-                mout[k] = v
-        savemat(os.path.splitext(outfile)[0] + '.mat', mout)
+        savemat(os.path.join(outdir, os.path.splitext(outfile)[0] + '.mat'), out)
