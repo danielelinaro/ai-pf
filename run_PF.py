@@ -627,14 +627,9 @@ def run_tran():
         print('Cannot find a grid named `{}`.'.format(config['grid_name']))
         sys.exit(1)
 
-
-    PF1, PF2 = _apply_configuration(config, verbosity_level)
-
-    Htot,Etot,Mtot,Stot,H,S,J,Pload,Qload,Psm,Qsm,Psg,Qsg = \
-        _compute_measures(grid.frnom, verbosity_level>0)
-
-    def check_matches(load, patterns, limits):
-        if all([re.match(pattern, load.loc_name) is None for pattern in patterns]):
+    def check_matches(load, patterns, limits, out_of_service):
+        if all([re.match(pattern, load.loc_name) is None for pattern in patterns]) or \
+            load.loc_name in out_of_service:
             return False
         p,q = np.abs(load.plini), np.abs(load.qlini)
         if (p >= limits['P'][0] and p <= limits['P'][1]) or \
@@ -644,7 +639,9 @@ def run_tran():
 
     loads = list(filter(lambda load: check_matches(load,
                                                    config['stoch_loads'],
-                                                   config['limits']),
+                                                   config['limits'],
+                                                   config['out_of_service']['ElmLod'] \
+                                                       if 'ElmLod' in config['out_of_service'] else []),
                         _get_objects('*.ElmLod')))
     n_loads = len(loads)
 
@@ -669,10 +666,21 @@ def run_tran():
     tstop = config['tstop']
     n_samples = int(np.ceil(tstop / dt)) + 1
     tau = [config['tau']['P'], config['tau']['Q']]
-    for load,stoch_load in zip(loads, stoch_loads):
+    for i,(load,stoch_load) in enumerate(zip(loads, stoch_loads)):
         P = load.plini, load.plini*config['sigma']['P']
         Q = load.qlini, load.qlini*config['sigma']['Q']
+        msg = 'Writing load file {:d}/{:d}...'.format(i+1, n_loads)
+        sys.stdout.write(msg)
+        sys.stdout.flush()
         stoch_load.write_to_file(dt, P, Q, n_samples, tau, verbosity_level>2)
+        if i < n_loads-1:
+            sys.stdout.write('\b' * len(msg))
+    sys.stdout.write('\n')
+    
+    PF1, PF2 = _apply_configuration(config, verbosity_level)
+
+    Htot,Etot,Mtot,Stot,H,S,J,Pload,Qload,Psm,Qsm,Psg,Qsg = \
+        _compute_measures(grid.frnom, verbosity_level>0)
 
     try:
         inc = _IC(dt, verbosity_level>1)
@@ -824,8 +832,23 @@ def run_AC_analysis():
         sys.stdout.flush()
         loads = _get_objects('*.ElmLod')
         load_buses = {}
-        for load in _get_objects('*.ElmLod'):
-            load_buses[load.loc_name] = load.bus1.cterm.loc_name
+        for i,load in enumerate(loads):
+            # the bus to which the load is directly connected
+            bus = load.bus1.cterm
+            # list of terminals that are equivalent to bus, i.e., those terminals
+            # that are only connected via closed switchs or zero-length lines
+            equiv_terms = bus.GetEquivalentTerminals()
+            # get connected busbars
+            busbars = [bb for bb in bus.GetConnectedMainBuses() if bb in equiv_terms]
+            n_busbars = len(busbars)
+            if n_busbars == 0:
+                load_buses[load.loc_name] = bus.loc_name
+            elif n_busbars == 1:
+                load_buses[load.loc_name] = busbars[0].loc_name
+            else:
+                raise Exception(f'Cannot figure out the bus ``{load.loc_name}`` is connected to.')
+            # print('[{:03d}] {} -> {}'.format(i+1,load.loc_name,load_buses[load.loc_name]))
+
         A = parse_sparse_matrix_file(os.path.join(outdir, 'Amat.mtl'))
         J = parse_sparse_matrix_file(os.path.join(outdir, 'Jacobian.mtl'))
         cols,var_names,model_names = \

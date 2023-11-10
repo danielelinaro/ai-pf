@@ -1,5 +1,5 @@
 {
-    "project_name": "IEEE39_stoch_const_P_loads",
+    "project_name": "IEEE39_stoch",
     "grid_name": "Grid",
 	"library_name": "Library",
 	"user_models_name": "User Defined Models",
@@ -18,7 +18,6 @@
 			"devs_name": "gen"
 		}
 	},
-	"seed": 100,
 	"dt": 0.005,
-	"tstop": 12000
+	"tstop": 14400
 }

@@ -6,41 +6,16 @@
 	"frame_name": "TimeVaryingLoadFrame",
 	"out_of_service": {"ElmGenstat": []},
 	"synch_mach": {"FSACTI0201GGR3____GEN_____": {"typ_id.h": 2.9}},
-    "stoch_loads": ["^Eq.*_LOAD_.*"],
+    "stoch_loads": ["EqX_BNFC_I0601TRR_____LOAD____"],
 	"limits": {"P": [5.0, 1e3], "Q": [5.0, 1e3]},
-	"sigma": {"P": 0.05, "Q": 0.0},
+	"sigma": {"P": 0.01, "Q": 0.0},
 	"tau": {"P": 0.02, "Q": 0.02},
 	"record": {
 		"ElmSym": {
 			"names": "*",
-			"vars": ["s:xspeed", "s:pgt", "c:fi"],
+			"vars": ["s:xspeed""],
 			"attrs": ["loc_name", "pgini", "qgini", "typ_id.h", "typ_id.sgn"],
 			"devs_name": "gen"
-		},
-		"ElmTerm": {
-			"names": [
-				"T2_CODCTI0201GGR1____GEN_____",
-				"T2_SELCTI0201GGR1____GEN_____",
-				"T2_BMSC_I0151GGR1____GEN_____",
-				"T2_BNFC_I0601GGR1____GEN_____",
-				"ASSCPI0152A1______BUS_____",
-				"ASSCPI0151A1______BUS_____",
-				"T2_FL2CZI0101GGR1____GEN_____",
-				"FSACTI0201A1______BUS_____",
-				"FSACTI0202A1______BUS_____",
-				"T2_SLXCZI0153GGR3____GEN_____",
-				"T2_SLXCZI0152GGR2____GEN_____",
-				"T2_SULCTI0202GGR2____GEN_____",
-				"FL3CZI0101A1______BUS_____",
-				"OZICZI0151A1______BUS_____",
-				"T2_TIRC_I0101GGR2____GEN_____",
-				"T2_TIRC_I0151GGR1____GEN_____",
-				"FL1CZI0101A1______BUS_____",
-				"T2_BMAC_I0101GGR1____GEN_____"
-			],
-			"vars": ["m:ur", "m:ui", "m:fe"],
-			"attrs": ["loc_name"],
-			"devs_name": "bus"
 		}
 	},
 	"seed": 100,

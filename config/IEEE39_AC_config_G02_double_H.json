@@ -1,7 +1,7 @@
 {
-    "project_name": "IEEE39_const_P_loads",
+    "project_name": "IEEE39",
     "grid_name": "Grid",
 	"out_of_service": {"ElmGenstat": []},
 	"synch_mach": {"G 02": {"typ_id.h": 8.658}},
-	"outdir": "C:\\Users\\Terna_Inerzia\\Desktop\\modal_analysis\\IEEE39\\G02_double_H_const_P_loads"
+	"outdir": "C:\\Users\\Terna_Inerzia\\Desktop\\modal_analysis\\IEEE39\\G02_double_H"
 }

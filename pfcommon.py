@@ -907,7 +907,11 @@ def parse_Jacobian_vars_file(filename):
                 var_type = tokens[2].lower()
             else:
                 idx = int(re.findall('\d+', line)[0]) - 1
-                var_name = re.findall('"[a-zA-Z0-9:]*"', line)[0][1:-1]
+                try:
+                    var_name = re.findall('"[a-zA-Z0-9:_()]*"', line)[0][1:-1]
+                except:
+                    import pdb
+                    pdb.set_trace()
                 obj_name = re.findall('[ ]+.*[ ]+', line)[0].strip().split(os.path.sep)[-1].split('.')[0]
                 if obj_name not in vars_idx:
                     vars_idx[obj_name] = {}

@@ -6,8 +6,8 @@ Created on Tue Oct 24 14:42:05 2023
 """
 
 import os
+import re
 import sys
-import glob
 import numpy as np
 # from scipy.io import savemat
 # import matplotlib.pyplot as plt
@@ -21,8 +21,8 @@ def usage(exit_code=None):
     print(f'usage: {progname} [-h | --help] [-m | --fmin <value>] [-M | --fmax <value>]')
     prefix = '       ' + ' ' * (len(progname)+1)
     print(prefix + '[-N | --n-steps <value>] [--dB <10|20>] [--save-mat]')
-    print(prefix + '[-o | --outfile <value>] [-O | --outdir <value>] [-f | --force]')
-    print(prefix + '[--P] [--Q] [--PQ] -L | --loads load1<,load2,...> file')
+    print(prefix + '[-o | --outfile <value>] [-f | --force]')
+    print(prefix + '[--P] [--Q] [--PQ] <-L | --loads load1<,load2,...>> file')
     if exit_code is not None:
         sys.exit(exit_code)
 
@@ -156,27 +156,43 @@ if __name__ == '__main__':
     I = np.eye(N_state_vars)
     M = np.zeros((N_freq, N_state_vars, N_state_vars), dtype=complex)    
     TF = np.zeros((N_freq, N_state_vars), dtype=complex)
-
+    
     load_buses = data['load_buses'].item()
     idx = []
     for load_name in load_names:
-        if load_name not in load_buses:
+        if '*' in load_name:
+            bus_names = []
+            for load,bus in load_buses.items():
+                if re.match(load_name, load):
+                    bus_names.append(bus)
+        elif load_name not in load_buses:
             print(f'{progname}: cannot find load `{load_name}`.')
             sys.exit(0)
-        bus_name = load_buses[load_name]
-        if use_P_constraint:
-            # real part of voltage
-            idx.append(vars_idx[bus_name]['ur'])
-        if use_Q_constraint:
-            # imaginary part of voltage
-            idx.append(vars_idx[bus_name]['ui'])
+        else:
+            bus_names = [load_buses[load_name]]
+        for bus_name in bus_names:
+            if use_P_constraint:
+                # real part of voltage
+                idx.append(vars_idx[bus_name]['ur'])
+            if use_Q_constraint:
+                # imaginary part of voltage
+                idx.append(vars_idx[bus_name]['ui'])
     idx = np.array(idx) - N_state_vars
     v = np.zeros(N_algebraic_vars, dtype=float)
     v[idx] = 1.0
+    # mean = 322e6
+    # stddev = 0.01 * mean
+    # tau = 20e-3
+    # mu,c,alpha = mean,stddev*np.sqrt(2/tau),1/tau
+    # v[idx] = c/alpha
     b = -Jfy @ np.linalg.inv(Jgy) @ v
     for i in tqdm(range(N_freq), ascii=True, ncols=70):
         M[i,:,:] = np.linalg.inv(-A + 1j*2*np.pi*F[i]*I)
         TF[i,:] = M[i,:,:] @ b
+        # df = F[i+1] - F[i]
+        # v[idx] = 2*c/alpha*np.sqrt(df)
+        # TF[i,:] = M[i,:,:] @ (b @ v)
+    # F = F[:-1]
     TF = TF[:,data['omega_col_idx']]
     mag = dB * np.log10(np.abs(TF))
     phase = np.angle(TF)
