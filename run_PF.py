@@ -785,7 +785,7 @@ def run_AC_analysis():
         outdir = '.'
         
     if outfile is None:
-        outfile = os.path.join(outdir, 'AC_' + config['project_name'] + '.npz')
+        outfile = os.path.join(outdir, config['project_name'] + '_AC.npz')
     if os.path.isfile(outfile) and not force:
         print(f'{progname}: output file `{outfile}` exists: use -f to overwrite.')
         sys.exit(1)

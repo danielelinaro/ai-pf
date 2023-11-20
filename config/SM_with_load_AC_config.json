@@ -1,0 +1,7 @@
+{
+    "project_name": "SM_with_load",
+    "grid_name": "Grid",
+	"out_of_service": {"ElmGenstat": []},
+	"synch_mach": {"G1": {"typ_id.h": 4.0}},
+	"outdir": "C:\\Users\\Terna_Inerzia\\Desktop\\modal_analysis\\SM_with_load\\default"
+}

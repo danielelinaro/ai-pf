@@ -13,12 +13,11 @@
 	"record": {
 		"ElmSym": {
 			"names": "*",
-			"vars": ["s:xspeed""],
+			"vars": ["s:xspeed"],
 			"attrs": ["loc_name", "pgini", "qgini", "typ_id.h", "typ_id.sgn"],
 			"devs_name": "gen"
 		}
 	},
-	"seed": 100,
 	"dt": 5e-3,
 	"tstop": 7200
 }

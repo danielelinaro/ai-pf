@@ -710,15 +710,27 @@ def run_power_flow(app, project_folder=None, study_case_name=None, verbose=False
     
     get_objects = lambda clss: [obj for obj in app.GetCalcRelevantObjects('*.' + clss) \
                                 if not obj.outserv]
+        
+    # NOTE: the ``1`` in the variable names below indicates that it's a
+    # positive-sequence quantity
     Ptot, Qtot = 0, 0
     for sm in get_objects('ElmSym'):
-        pq = [sm.GetAttribute(f'm:{c}sum:bus1') for c in 'PQ']
+        pq = [sm.GetAttribute(f'm:{c}sum:bus1') for c in 'PQ'] # [MW,Mvar]
         results['SMs'][sm.loc_name] = {
-            'P': pq[0],
-            'Q': pq[1],
-            'I': sm.GetAttribute('m:I:bus1'),
-            'V': sm.GetAttribute('m:U1:bus1'),    # line-to-ground voltage
-            'Vl': sm.GetAttribute('m:U1l:bus1')  # line-to-line voltage
+            'P': pq[0], # [MW]
+            'Q': pq[1], # [Mvar]
+            'ur': sm.GetAttribute('m:u1r:bus1'), # [pu]
+            'ui': sm.GetAttribute('m:u1i:bus1'), # [pu]
+            'u': sm.GetAttribute('m:u1:bus1'),   # [pu]
+            'V': sm.GetAttribute('m:U1:bus1'),   # [kV] line-to-ground voltage
+            'Vl': sm.GetAttribute('m:U1l:bus1'), # [kV] line-to-line voltage
+            'ir': sm.GetAttribute('m:i1r:bus1'), # [pu]
+            'ii': sm.GetAttribute('m:i1i:bus1'),  # [pu]
+            'i': sm.GetAttribute('m:i1:bus1'),   # [pu]
+            'I': sm.GetAttribute('m:I:bus1'),    # [kA]
+            'phiu': sm.GetAttribute('m:phiu1:bus1'),   # [deg] current angle
+            'phii': sm.GetAttribute('m:phii1:bus1'),   # [deg] current angle
+            'cosphi': sm.GetAttribute('m:cosphi:bus1') # [deg] current angle
         }
         Ptot += pq[0]
         Qtot += pq[1]
@@ -741,11 +753,20 @@ def run_power_flow(app, project_folder=None, study_case_name=None, verbose=False
     for load in get_objects('ElmLod'):
         pq = [load.GetAttribute(f'm:{c}sum:bus1') for c in 'PQ']
         results['loads'][load.loc_name] = {
-            'P': pq[0],
-            'Q': pq[1],
-            'I': load.GetAttribute('m:I:bus1'),
-            'V': load.GetAttribute('m:U1:bus1'),    # line-to-ground voltage
-            'Vl': load.GetAttribute('m:U1l:bus1'),  # line-to-line voltage
+            'P': pq[0], # [MW]
+            'Q': pq[1], # [Mvar]
+            'ur': sm.GetAttribute('m:u1r:bus1'), # [pu]
+            'ui': sm.GetAttribute('m:u1i:bus1'), # [pu]
+            'u': sm.GetAttribute('m:u1:bus1'),   # [pu]
+            'V': sm.GetAttribute('m:U1:bus1'),   # [kV] line-to-ground voltage
+            'Vl': sm.GetAttribute('m:U1l:bus1'), # [kV] line-to-line voltage
+            'ir': sm.GetAttribute('m:i1r:bus1'), # [pu]
+            'ii': sm.GetAttribute('m:i1i:bus1'),  # [pu]
+            'i': sm.GetAttribute('m:i1:bus1'),   # [pu]
+            'I': sm.GetAttribute('m:I:bus1'),    # [kA]
+            'phiu': sm.GetAttribute('m:phiu1:bus1'),   # [deg] current angle
+            'phii': sm.GetAttribute('m:phii1:bus1'),   # [deg] current angle
+            'cosphi': sm.GetAttribute('m:cosphi:bus1') # [deg] current angle
         }
         Ptot += pq[0]
         Qtot += pq[1]
@@ -756,11 +777,13 @@ def run_power_flow(app, project_folder=None, study_case_name=None, verbose=False
     for bus in get_objects('ElmTerm'):
         try:
             results['buses'][bus.loc_name] = {
-                'voltage': bus.GetAttribute('m:u'),
-                'V': bus.GetAttribute('m:U'),
-                'Vd': bus.GetAttribute('m:u1r'),
-                'Vq': bus.GetAttribute('m:u1i'),
-                'Vl': bus.GetAttribute('m:Ul'),
+                'ur': bus.GetAttribute('m:u1r'),    # [pu]
+                'ui': bus.GetAttribute('m:u1i'),    # [pu]
+                'u': bus.GetAttribute('m:u1'),      # [pu]
+                'V': bus.GetAttribute('m:U'),      # [kV] line-to-ground voltage
+                'Vl': bus.GetAttribute('m:Ul'),    # [kV] line-to-line voltage
+                'phi': bus.GetAttribute('m:phiu'), # [deg]
+                'phirel': bus.GetAttribute('m:phiurel'), # [deg]
                 'P': {power_type: bus.GetAttribute(f'm:P{power_type}') for power_type in power_types},
                 'Q': {power_type: bus.GetAttribute(f'm:Q{power_type}') for power_type in power_types}
             }
@@ -855,19 +878,17 @@ def print_power_flow(results):
               f'Pflow = {data["P"]["flow"]*coeff:7.2f} {unit}W, Qflow = {data["Q"]["flow"]*coeff:7.2f} {unit}VA.')
 
 
-def parse_sparse_matrix_file(filename):
-    rows,cols,vals = [], [], []
-    with open(filename, 'r') as fid:
-        for line in fid:
-            row,col,val = re.findall('-?\d+\.?\d*e?[+-]?\d*', line)
-            rows.append(int(row)-1)
-            cols.append(int(col)-1)
-            vals.append(float(val))
-    n = max(max(rows), max(cols)) + 1
-    A = np.zeros((n,n))
-    for row,col,val in zip(rows,cols,vals):
-        A[row,col] = val
-    return A
+def parse_sparse_matrix_file(filename, sparse=False, one_based_indexes=True):
+    from scipy.sparse import csr_matrix
+    data = np.loadtxt(filename)
+    row_ind = np.asarray(data[:,0], dtype=int)
+    col_ind = np.asarray(data[:,1], dtype=int)
+    if one_based_indexes:
+        row_ind, col_ind = row_ind-1, col_ind-1
+    M = csr_matrix((data[:,2], (row_ind, col_ind)))
+    if not sparse:
+        return M.toarray()
+    return M
 
 def parse_Amat_vars_file(filename):
     def parse_line(line):
