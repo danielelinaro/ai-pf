@@ -916,8 +916,15 @@ def parse_Amat_vars_file(filename):
 
 
 def parse_Jacobian_vars_file(filename):
-    vars_idx = {}
-    state_vars, voltages, currents, signals = {}, {}, {}, {}
+    from collections import OrderedDict
+    vars_idx = OrderedDict()
+    state_vars, voltages = OrderedDict(), OrderedDict()
+    currents, signals = OrderedDict(), OrderedDict()
+    def add_to_list(D, oname, vname):
+        try:
+            D[oname].append(vname)
+        except:
+            D[oname] = [vname]
     with open(filename, 'r') as fid:
         for line in fid:
             line = line.strip()
@@ -935,20 +942,16 @@ def parse_Jacobian_vars_file(filename):
                     pdb.set_trace()
                 obj_name = re.findall('[ ]+.*[ ]+', line)[0].strip().split(os.path.sep)[-1].split('.')[0]
                 if obj_name not in vars_idx:
-                    vars_idx[obj_name] = {}
-                    state_vars[obj_name] = []
-                    voltages[obj_name] = []
-                    currents[obj_name] = []
-                    signals[obj_name] = []
+                    vars_idx[obj_name] = OrderedDict()
                 vars_idx[obj_name][var_name] = idx
                 if 'state' in var_type:
-                    state_vars[obj_name].append(var_name)
+                    add_to_list(state_vars, obj_name, var_name)
                 elif 'voltage' in var_type:
-                    voltages[obj_name].append(var_name)
+                    add_to_list(voltages, obj_name, var_name)
                 elif 'current' in var_type:
-                    currents[obj_name].append(var_name)
+                    add_to_list(currents, obj_name, var_name)
                 elif 'signal' in var_type:
-                    signals[obj_name].append(var_name)
+                    add_to_list(signals, obj_name, var_name)
     return vars_idx,state_vars,voltages,currents,signals
 
 
