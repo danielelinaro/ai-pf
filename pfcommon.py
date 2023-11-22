@@ -936,11 +936,11 @@ def parse_Jacobian_vars_file(filename):
             else:
                 idx = int(re.findall('\d+', line)[0]) - 1
                 try:
-                    var_name = re.findall('"[a-zA-Z0-9:_()]*"', line)[0][1:-1]
+                    var_name = re.findall('"[a-zA-Z0-9:_()]*"', line)[0][1:-1].replace(':bus1','')
                 except:
                     import pdb
                     pdb.set_trace()
-                obj_name = re.findall('[ ]+.*[ ]+', line)[0].strip().split(os.path.sep)[-1].split('.')[0]
+                obj_name = re.findall('[ ]+.*[ ]+', line)[0].strip().split('\\')[-1].split('.')[0]
                 if obj_name not in vars_idx:
                     vars_idx[obj_name] = OrderedDict()
                 vars_idx[obj_name][var_name] = idx
