@@ -158,41 +158,55 @@ if __name__ == '__main__':
     TF = np.zeros((N_freq, N_state_vars), dtype=complex)
     
     load_buses = data['load_buses'].item()
-    idx = []
+    all_load_names = []
     for load_name in load_names:
         if '*' in load_name:
-            bus_names = []
-            for load,bus in load_buses.items():
+            for load in load_buses.keys():
                 if re.match(load_name, load):
-                    bus_names.append(bus)
+                    all_load_names.append(load)
         elif load_name not in load_buses:
             print(f'{progname}: cannot find load `{load_name}`.')
             sys.exit(0)
         else:
-            bus_names = [load_buses[load_name]]
-        for bus_name in bus_names:
-            if use_P_constraint:
-                # real part of voltage
-                idx.append(vars_idx[bus_name]['ur'])
-            if use_Q_constraint:
-                # imaginary part of voltage
-                idx.append(vars_idx[bus_name]['ui'])
+            all_load_names.append(load_name)
+    load_names = all_load_names
+
+    PF_loads = data['PF_without_slack'].item()['loads']
+    idx = []
+    c,alpha = [], []
+    for load_name in load_names:
+        bus_name = load_buses[load_name]
+        keys = []
+        if use_P_constraint:
+            # real part of voltage
+            idx.append(vars_idx[bus_name]['ur'])
+            keys.append('P')
+        if use_Q_constraint:
+            # imaginary part of voltage
+            idx.append(vars_idx[bus_name]['ui'])
+            keys.append('Q')
+        for key in keys:
+            mean = PF_loads[load_name][key]
+            stddev = 0.01 * mean
+            tau = 20e-3
+            c.append(stddev*np.sqrt(2/tau))
+            alpha.append(1/tau)
     idx = np.array(idx) - N_state_vars
+    c,alpha = np.array(c), np.array(alpha)
     v = np.zeros(N_algebraic_vars, dtype=float)
-    v[idx] = 1.0
-    # mean = 322e6
-    # stddev = 0.01 * mean
-    # tau = 20e-3
-    # mu,c,alpha = mean,stddev*np.sqrt(2/tau),1/tau
-    # v[idx] = c/alpha
-    b = -Jfy @ np.linalg.inv(Jgy) @ v
+    freq_dep = True
+    if freq_dep:
+        B = -Jfy @ np.linalg.inv(Jgy)
+    else:
+        v[idx] = c/alpha
+        b = -Jfy @ np.linalg.inv(Jgy) @ v
     for i in tqdm(range(N_freq), ascii=True, ncols=70):
         M[i,:,:] = np.linalg.inv(-A + 1j*2*np.pi*F[i]*I)
+        if freq_dep:
+            PSD = (c/alpha)**2 / (1 + (2*np.pi*F[i]/alpha)**2)
+            v[idx] = np.sqrt(PSD)
+            b = B @ v
         TF[i,:] = M[i,:,:] @ b
-        # df = F[i+1] - F[i]
-        # v[idx] = 2*c/alpha*np.sqrt(df)
-        # TF[i,:] = M[i,:,:] @ (b @ v)
-    # F = F[:-1]
     TF = TF[:,data['omega_col_idx']]
     mag = dB * np.log10(np.abs(TF))
     phase = np.angle(TF)
