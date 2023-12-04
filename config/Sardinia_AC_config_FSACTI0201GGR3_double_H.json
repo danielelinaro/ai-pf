@@ -1,5 +1,5 @@
 {
-    "project_name": "V2020_Rete_Sardegna_2021_06_03cr",
+    "project_name": "V2020_Rete_Sard_2021_06_03cr_mod_loads",
     "grid_name": "Grid",
 	"out_of_service": {"ElmGenstat": []},
 	"synch_mach": {"FSACTI0201GGR3____GEN_____": {"typ_id.h": 5.8}},

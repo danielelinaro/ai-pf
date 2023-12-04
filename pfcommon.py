@@ -717,19 +717,19 @@ def run_power_flow(app, project_folder=None, study_case_name=None, verbose=False
     for sm in get_objects('ElmSym'):
         pq = [sm.GetAttribute(f'm:{c}sum:bus1') for c in 'PQ'] # [MW,Mvar]
         results['SMs'][sm.loc_name] = {
-            'P': pq[0], # [MW]
-            'Q': pq[1], # [Mvar]
-            'ur': sm.GetAttribute('m:u1r:bus1'), # [pu]
-            'ui': sm.GetAttribute('m:u1i:bus1'), # [pu]
-            'u': sm.GetAttribute('m:u1:bus1'),   # [pu]
-            'V': sm.GetAttribute('m:U1:bus1'),   # [kV] line-to-ground voltage
-            'Vl': sm.GetAttribute('m:U1l:bus1'), # [kV] line-to-line voltage
-            'ir': sm.GetAttribute('m:i1r:bus1'), # [pu]
-            'ii': sm.GetAttribute('m:i1i:bus1'),  # [pu]
-            'i': sm.GetAttribute('m:i1:bus1'),   # [pu]
-            'I': sm.GetAttribute('m:I:bus1'),    # [kA]
-            'phiu': sm.GetAttribute('m:phiu1:bus1'),   # [deg] current angle
-            'phii': sm.GetAttribute('m:phii1:bus1'),   # [deg] current angle
+            'P':      pq[0], # [MW]
+            'Q':      pq[1], # [Mvar]
+            'ur':     sm.GetAttribute('m:u1r:bus1'),   # [pu]
+            'ui':     sm.GetAttribute('m:u1i:bus1'),   # [pu]
+            'u':      sm.GetAttribute('m:u1:bus1'),    # [pu]
+            'V':      sm.GetAttribute('m:U1:bus1'),    # [kV] line-to-ground voltage
+            'Vl':     sm.GetAttribute('m:U1l:bus1'),   # [kV] line-to-line voltage
+            'ir':     sm.GetAttribute('m:i1r:bus1'),   # [pu]
+            'ii':     sm.GetAttribute('m:i1i:bus1'),   # [pu]
+            'i':      sm.GetAttribute('m:i1:bus1'),    # [pu]
+            'I':      sm.GetAttribute('m:I:bus1'),     # [kA]
+            'phiu':   sm.GetAttribute('m:phiu1:bus1'), # [deg] current angle
+            'phii':   sm.GetAttribute('m:phii1:bus1'), # [deg] current angle
             'cosphi': sm.GetAttribute('m:cosphi:bus1') # [deg] current angle
         }
         Ptot += pq[0]
@@ -753,20 +753,20 @@ def run_power_flow(app, project_folder=None, study_case_name=None, verbose=False
     for load in get_objects('ElmLod'):
         pq = [load.GetAttribute(f'm:{c}sum:bus1') for c in 'PQ']
         results['loads'][load.loc_name] = {
-            'P': pq[0], # [MW]
-            'Q': pq[1], # [Mvar]
-            'ur': sm.GetAttribute('m:u1r:bus1'), # [pu]
-            'ui': sm.GetAttribute('m:u1i:bus1'), # [pu]
-            'u': sm.GetAttribute('m:u1:bus1'),   # [pu]
-            'V': sm.GetAttribute('m:U1:bus1'),   # [kV] line-to-ground voltage
-            'Vl': sm.GetAttribute('m:U1l:bus1'), # [kV] line-to-line voltage
-            'ir': sm.GetAttribute('m:i1r:bus1'), # [pu]
-            'ii': sm.GetAttribute('m:i1i:bus1'),  # [pu]
-            'i': sm.GetAttribute('m:i1:bus1'),   # [pu]
-            'I': sm.GetAttribute('m:I:bus1'),    # [kA]
-            'phiu': sm.GetAttribute('m:phiu1:bus1'),   # [deg] current angle
-            'phii': sm.GetAttribute('m:phii1:bus1'),   # [deg] current angle
-            'cosphi': sm.GetAttribute('m:cosphi:bus1') # [deg] current angle
+            'P':      pq[0], # [MW]
+            'Q':      pq[1], # [Mvar]
+            'ur':     load.GetAttribute('m:u1r:bus1'),   # [pu]
+            'ui':     load.GetAttribute('m:u1i:bus1'),   # [pu]
+            'u':      load.GetAttribute('m:u1:bus1'),    # [pu]
+            'V':      load.GetAttribute('m:U1:bus1'),    # [kV] line-to-ground voltage
+            'Vl':     load.GetAttribute('m:U1l:bus1'),   # [kV] line-to-line voltage
+            'ir':     load.GetAttribute('m:i1r:bus1'),   # [pu]
+            'ii':     load.GetAttribute('m:i1i:bus1'),   # [pu]
+            'i':      load.GetAttribute('m:i1:bus1'),    # [pu]
+            'I':      load.GetAttribute('m:I:bus1'),     # [kA]
+            'phiu':   load.GetAttribute('m:phiu1:bus1'), # [deg] current angle
+            'phii':   load.GetAttribute('m:phii1:bus1'), # [deg] current angle
+            'cosphi': load.GetAttribute('m:cosphi:bus1') # [deg] current angle
         }
         Ptot += pq[0]
         Qtot += pq[1]
@@ -777,12 +777,12 @@ def run_power_flow(app, project_folder=None, study_case_name=None, verbose=False
     for bus in get_objects('ElmTerm'):
         try:
             results['buses'][bus.loc_name] = {
-                'ur': bus.GetAttribute('m:u1r'),    # [pu]
-                'ui': bus.GetAttribute('m:u1i'),    # [pu]
-                'u': bus.GetAttribute('m:u1'),      # [pu]
-                'V': bus.GetAttribute('m:U'),      # [kV] line-to-ground voltage
-                'Vl': bus.GetAttribute('m:Ul'),    # [kV] line-to-line voltage
-                'phi': bus.GetAttribute('m:phiu'), # [deg]
+                'ur':     bus.GetAttribute('m:u1r'),     # [pu]
+                'ui':     bus.GetAttribute('m:u1i'),     # [pu]
+                'u':      bus.GetAttribute('m:u1'),      # [pu]
+                'V':      bus.GetAttribute('m:U'),       # [kV] line-to-ground voltage
+                'Vl':     bus.GetAttribute('m:Ul'),      # [kV] line-to-line voltage
+                'phi':    bus.GetAttribute('m:phiu'),    # [deg]
                 'phirel': bus.GetAttribute('m:phiurel'), # [deg]
                 'P': {power_type: bus.GetAttribute(f'm:P{power_type}') for power_type in power_types},
                 'Q': {power_type: bus.GetAttribute(f'm:Q{power_type}') for power_type in power_types}

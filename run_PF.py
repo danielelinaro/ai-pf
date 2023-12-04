@@ -237,7 +237,7 @@ def _apply_configuration(config, verbosity_level):
                              PF2['SMs'][SM]['Q']))
         except:
             pass
-        
+
     return PF1, PF2
 
 
@@ -631,7 +631,7 @@ def run_tran():
         if all([re.match(pattern, load.loc_name) is None for pattern in patterns]) or \
             load.loc_name in out_of_service:
             return False
-        p,q = np.abs(load.plini), np.abs(load.qlini)
+        p,q = load.plini, load.qlini
         if (p >= limits['P'][0] and p <= limits['P'][1]) or \
             (q >= limits['Q'][0] and q <= limits['Q'][1]):
                return True
@@ -667,8 +667,8 @@ def run_tran():
     n_samples = int(np.ceil(tstop / dt)) + 1
     tau = [config['tau']['P'], config['tau']['Q']]
     for i,(load,stoch_load) in enumerate(zip(loads, stoch_loads)):
-        P = load.plini, load.plini*config['sigma']['P']
-        Q = load.qlini, load.qlini*config['sigma']['Q']
+        P = load.plini, np.abs(load.plini)*config['sigma']['P']
+        Q = load.qlini, np.abs(load.qlini)*config['sigma']['Q']
         msg = 'Writing load file {:d}/{:d}...'.format(i+1, n_loads)
         sys.stdout.write(msg)
         sys.stdout.flush()
@@ -831,7 +831,7 @@ def run_AC_analysis():
         sys.stdout.write('done.\nSaving data... ')
         sys.stdout.flush()
         loads = _get_objects('*.ElmLod')
-        load_buses = {}
+        load_buses, bus_equiv_terms = {}, {}
         for i,load in enumerate(loads):
             # the bus to which the load is directly connected
             bus = load.bus1.cterm
@@ -845,9 +845,13 @@ def run_AC_analysis():
                 load_buses[load.loc_name] = bus.loc_name
             elif n_busbars == 1:
                 load_buses[load.loc_name] = busbars[0].loc_name
+                # this is probably not really necessary
+                equiv_terms = busbars[0].GetEquivalentTerminals()
             else:
                 raise Exception(f'Cannot figure out the bus ``{load.loc_name}`` is connected to.')
             # print('[{:03d}] {} -> {}'.format(i+1,load.loc_name,load_buses[load.loc_name]))
+            equiv_terms_names = sorted([term.loc_name for term in equiv_terms])
+            bus_equiv_terms[load_buses[load.loc_name]] = equiv_terms_names
 
         A = parse_sparse_matrix_file(os.path.join(outdir, 'Amat.mtl'))
         J = parse_sparse_matrix_file(os.path.join(outdir, 'Jacobian.mtl'))
@@ -876,7 +880,8 @@ def run_AC_analysis():
                 'model_names': model_names,
                 'omega_col_idx': omega_col_idx,
                 'gen_names': gen_names,
-                'load_buses': load_buses}
+                'load_buses': load_buses,
+                'bus_equiv_terms': bus_equiv_terms}
         np.savez_compressed(outfile, **data)
         print('done.')
 

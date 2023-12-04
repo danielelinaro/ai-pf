@@ -157,6 +157,7 @@ if __name__ == '__main__':
     M = np.zeros((N_freq, N_state_vars, N_state_vars), dtype=complex)    
     TF = np.zeros((N_freq, N_state_vars), dtype=complex)
     
+    bus_equiv_terms = data['bus_equiv_terms'].item()
     load_buses = data['load_buses'].item()
     all_load_names = []
     for load_name in load_names:
@@ -175,8 +176,18 @@ if __name__ == '__main__':
     idx = []
     c,alpha = [], []
     for load_name in load_names:
-        bus_name = load_buses[load_name]
         keys = []
+        bus_name = load_buses[load_name]
+        if bus_name not in vars_idx:
+            # we have to look through the equivalent terms of bus_name
+            for equiv_term_name in bus_equiv_terms[bus_name]:
+                if equiv_term_name in vars_idx:
+                    print('Load {} is connected to bus {}, which is not among the '.
+                          format(load_name, bus_name) + 
+                          'buses whose ur and ui variables are in the Jacobian, but {} is.'.
+                          format(equiv_term_name))
+                    bus_name = equiv_term_name
+                    break
         if use_P_constraint:
             # real part of voltage
             idx.append(vars_idx[bus_name]['ur'])
@@ -187,27 +198,22 @@ if __name__ == '__main__':
             keys.append('Q')
         for key in keys:
             mean = PF_loads[load_name][key]
-            stddev = 0.01 * mean
+            stddev = 0.01 * abs(mean)
             tau = 20e-3
             c.append(stddev*np.sqrt(2/tau))
             alpha.append(1/tau)
     idx = np.array(idx) - N_state_vars
     c,alpha = np.array(c), np.array(alpha)
-    v = np.zeros(N_algebraic_vars, dtype=float)
-    freq_dep = True
-    if freq_dep:
-        B = -Jfy @ np.linalg.inv(Jgy)
-    else:
-        v[idx] = c/alpha
-        b = -Jfy @ np.linalg.inv(Jgy) @ v
+    B = -Jfy @ np.linalg.inv(Jgy)
     for i in tqdm(range(N_freq), ascii=True, ncols=70):
         M[i,:,:] = np.linalg.inv(-A + 1j*2*np.pi*F[i]*I)
-        if freq_dep:
-            PSD = (c/alpha)**2 / (1 + (2*np.pi*F[i]/alpha)**2)
-            v[idx] = np.sqrt(PSD)
-            b = B @ v
-        TF[i,:] = M[i,:,:] @ b
-    TF = TF[:,data['omega_col_idx']]
+        MxB = M[i,:,:] @ B
+        PSD = np.sqrt((c/alpha)**2 / (1 + (2*np.pi*F[i]/alpha)**2))
+        for j,psd in enumerate(PSD):
+            v = np.zeros(N_algebraic_vars, dtype=float)
+            v[idx[j]] = psd
+            TF[i,:] += (MxB @ v)**2
+    TF = np.sqrt(TF[:,data['omega_col_idx']])
     mag = dB * np.log10(np.abs(TF))
     phase = np.angle(TF)
     
