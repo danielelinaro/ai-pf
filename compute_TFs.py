@@ -21,8 +21,9 @@ def usage(exit_code=None):
     print(f'usage: {progname} [-h | --help] [-m | --fmin <value>] [-M | --fmax <value>]')
     prefix = '       ' + ' ' * (len(progname)+1)
     print(prefix + '[-N | --n-steps <value>] [--dB <10|20>] [--save-mat]')
-    print(prefix + '[-o | --outfile <value>] [-f | --force]')
-    print(prefix + '[--P] [--Q] [--PQ] <-L | --loads load1<,load2,...>> file')
+    print(prefix + '[-o | --outfile <value>] [-f | --force] [--tau <value>] ')
+    print(prefix + '<--P | --Q | --PQ> <--dP | --sigmaP value1<,value2,...>>')
+    print(prefix + '<--dQ | --sigmaQ value1<,value2,...>> <-L | --loads load1<,load2,...>> file')
     if exit_code is not None:
         sys.exit(exit_code)
 
@@ -38,6 +39,10 @@ if __name__ == '__main__':
     outdir, outfile = '', None
     load_names = None
     use_P_constraint, use_Q_constraint = False, False
+    dP,dQ = [],[]
+    sigmaP,sigmaQ = [],[]
+    # time constant of the OU process
+    tau = 20e-3
 
     i = 1
     n_args = len(sys.argv)
@@ -64,6 +69,21 @@ if __name__ == '__main__':
         elif arg == '--PQ':
             use_P_constraint = True
             use_Q_constraint = True
+        elif arg == '--dP':
+            i += 1
+            dP = list(map(float, sys.argv[i].split(',')))
+        elif arg == '--dQ':
+            i += 1
+            dP = list(map(float, sys.argv[i].split(',')))
+        elif arg == '--sigmaP':
+            i += 1
+            sigmaP = list(map(float, sys.argv[i].split(',')))
+        elif arg == '--sigmaQ':
+            i += 1
+            sigmaQ = list(map(float, sys.argv[i].split(',')))
+        elif arg == '--tau':
+            i += 1
+            tau = float(sys.argv[i])
         elif arg == '--dB':
             i += 1
             dB = int(sys.argv[i])
@@ -100,7 +120,22 @@ if __name__ == '__main__':
     if not use_P_constraint and not use_Q_constraint:
         print(f'{progname}: at least one of --P and --Q must be specified.')
         sys.exit(1)
-        
+    
+    if use_P_constraint:
+        if len(dP) == 0 and len(sigmaP) == 0:
+            print(f'{progname}: either --dP or --sigmaP must be specified with --P.')
+            sys.exit(1)
+        elif len(dP) > 0 and len(sigmaP) > 0:
+            print(f'{progname}: only one of --dP and --sigmaP can be specified.')
+            sys.exit(1)
+    if use_Q_constraint:
+        if len(dQ) == 0 and len(sigmaQ) == 0:
+            print(f'{progname}: either --dQ or --sigmaQ must be specified with --Q.')
+            sys.exit(1)
+        elif len(dQ) > 0 and len(sigmaQ) > 0:
+            print(f'{progname}: only one of --dP and --sigmaP can be specified.')
+            sys.exit(1)
+
     if outfile is None:
         outdir = os.path.dirname(data_file)
         if outdir == '':
@@ -160,22 +195,35 @@ if __name__ == '__main__':
     bus_equiv_terms = data['bus_equiv_terms'].item()
     load_buses = data['load_buses'].item()
     all_load_names = []
-    for load_name in load_names:
+    all_dP,all_dQ,all_sigmaP,all_sigmaQ = [],[],[],[]
+    def try_append(dst, src, i):
+        try: dst.append(src[i])
+        except: pass
+    for i,load_name in enumerate(load_names):
         if '*' in load_name:
             for load in load_buses.keys():
                 if re.match(load_name, load):
                     all_load_names.append(load)
+                    try_append(all_dP, dP, i)
+                    try_append(all_dQ, dQ, i)
+                    try_append(all_sigmaP, sigmaP, i)
+                    try_append(all_sigmaQ, sigmaQ, i)
         elif load_name not in load_buses:
             print(f'{progname}: cannot find load `{load_name}`.')
             sys.exit(0)
         else:
             all_load_names.append(load_name)
+            try_append(all_dP, dP, i)
+            try_append(all_dQ, dQ, i)
+            try_append(all_sigmaP, sigmaP, i)
+            try_append(all_sigmaQ, sigmaQ, i)
     load_names = all_load_names
+    dP,dQ,sigmaP,sigmaQ = all_dP,all_dQ,all_sigmaP,all_sigmaQ
 
     PF_loads = data['PF_without_slack'].item()['loads']
     idx = []
     c,alpha = [], []
-    for load_name in load_names:
+    for i,load_name in enumerate(load_names):
         keys = []
         bus_name = load_buses[load_name]
         if bus_name not in vars_idx:
@@ -198,10 +246,19 @@ if __name__ == '__main__':
             keys.append('Q')
         for key in keys:
             mean = PF_loads[load_name][key]
-            stddev = 0.01 * abs(mean)
-            tau = 20e-3
+            if key == 'P':
+                if len(dP) > 0:
+                    stddev = dP[i] * abs(mean)
+                else:
+                    stddev = sigmaP[i]
+            else:
+                if len(dQ) > 0:
+                    stddev = dQ[i] * abs(mean)
+                else:
+                    stddev = sigmaQ[i]
             c.append(stddev*np.sqrt(2/tau))
             alpha.append(1/tau)
+
     idx = np.array(idx) - N_state_vars
     c,alpha = np.array(c), np.array(alpha)
     B = -Jfy @ np.linalg.inv(Jgy)

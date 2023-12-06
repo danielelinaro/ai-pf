@@ -3,5 +3,5 @@
     "grid_name": "Grid",
 	"out_of_service": {"ElmGenstat": []},
 	"synch_mach": {"FSACTI0201GGR3____GEN_____": {"typ_id.h": 5.8}},
-	"outdir": "C:\\Users\\Terna_Inerzia\\Desktop\\modal_analysis\\Sardinia\\FSACTI0201GGR3_double_H"
+	"outdir": "C:\\Users\\Terna_Inerzia\\Desktop\\modal_analysis\\Sardinia\\FSACTI0201GGR3_double_H\\EqX_NARCDI1501TRB_____LOAD____\\positive_load"
 }
