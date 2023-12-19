@@ -185,13 +185,15 @@ if __name__ == '__main__':
     Jfy = J[:N_state_vars, N_state_vars:]
     Jgx = J[N_state_vars:, :N_state_vars]
     Jgy = J[N_state_vars:, N_state_vars:]
-    Atmp = Jfx - Jfy @ np.linalg.inv(Jgy) @ Jgx
+    Jgy_inv = np.linalg.inv(Jgy)
+    Atmp = Jfx - Jfy @ Jgy_inv @ Jgx
     assert np.all(np.abs(A-Atmp) < 1e-8)
 
     I = np.eye(N_state_vars)
     M = np.zeros((N_freq, N_state_vars, N_state_vars), dtype=complex)    
     TF = np.zeros((N_freq, N_state_vars), dtype=complex)
-    
+    TF2 = np.zeros((N_freq, N_algebraic_vars), dtype=complex)
+
     bus_equiv_terms = data['bus_equiv_terms'].item()
     load_buses = data['load_buses'].item()
     all_load_names = []
@@ -261,7 +263,8 @@ if __name__ == '__main__':
 
     idx = np.array(idx) - N_state_vars
     c,alpha = np.array(c), np.array(alpha)
-    B = -Jfy @ np.linalg.inv(Jgy)
+    B = -Jfy @ Jgy_inv
+    C = -Jgy_inv @ Jgx
     for i in tqdm(range(N_freq), ascii=True, ncols=70):
         M[i,:,:] = np.linalg.inv(-A + 1j*2*np.pi*F[i]*I)
         MxB = M[i,:,:] @ B
@@ -269,8 +272,16 @@ if __name__ == '__main__':
         for j,psd in enumerate(PSD):
             v = np.zeros(N_algebraic_vars, dtype=float)
             v[idx[j]] = psd
-            TF[i,:] += (MxB @ v)**2
+            tmp = MxB @ v
+            TF[i,:] += tmp**2
+            #Deltay = C @ tmp # as many elements as the number of algebraic variables
+            #assert Deltay.size == N_algebraic_vars
+            TF2[i,:] += (C @ tmp)**2
+            #import ipdb
+            #ipdb.set_trace()
     TF = np.sqrt(TF[:,data['omega_col_idx']])
+    #TF = np.sqrt(TF)
+    TF2 = np.sqrt(TF2)
     mag = dB * np.log10(np.abs(TF))
     phase = np.angle(TF)
     
@@ -278,7 +289,7 @@ if __name__ == '__main__':
     Etot = data['energy']
     Mtot = data['momentum']
     out = {'Htot': Htot, 'Etot': Etot, 'Mtot': Mtot,
-           'F': F, 'TF': TF, 'mag': mag, 'phase': phase,
+           'F': F, 'TF': TF, 'TF2': TF2, 'mag': mag, 'phase': phase,
            'SM_names': SM_names, 'H': H, 'S': S, 'P': P, 'Q': Q, 'dB': dB}
     np.savez_compressed(os.path.join(outdir, outfile), **out)
 
