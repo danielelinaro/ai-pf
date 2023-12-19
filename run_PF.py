@@ -315,7 +315,10 @@ def _set_vars_to_save(record_map, verbose=False):
             key = dev_type
         device_names[key] = []
         for dev in devices:
-            if record_map[dev_type]['names'] == '*' or dev.loc_name in record_map[dev_type]['names']:
+            if (isinstance(record_map[dev_type]['names'], str) and \
+                (record_map[dev_type]['names'] == '*' or \
+                 re.match(record_map[dev_type]['names'], dev.loc_name) is not None)) or \
+                dev.loc_name in record_map[dev_type]['names']:
                 if verbose: sys.stdout.write(f'{dev.loc_name}:')
                 for var_name in record_map[dev_type]['vars']:
                     res.AddVariable(dev, var_name)
@@ -383,6 +386,9 @@ def _get_data(res, record_map, data_obj, interval=(0,None), dt=None, verbose=Fal
         devices = _get_objects('*.' + dev_type)
         if isinstance(record_map[dev_type]['names'], list):
             devices = [dev for dev in devices if dev.loc_name in record_map[dev_type]['names']]
+        elif isinstance(record_map[dev_type]['names'], str) and \
+            record_map[dev_type]['names'] != '*' and '*' in  record_map[dev_type]['names']:
+            devices = [dev for dev in devices if re.match(record_map[dev_type]['names'], dev.loc_name) is not None]
         try:
             key = record_map[dev_type]['devs_name']
         except:
@@ -684,7 +690,7 @@ def run_tran():
 
     try:
         inc = _IC(dt, verbosity_level>1)
-        res, _ = _set_vars_to_save(config['record'], verbosity_level>2)
+        res, _ = _set_vars_to_save(config['record'], verbosity_level>=2)
         sim,dur,err = _tran(tstop, verbosity_level>1)
 
         interval = (0, None)
