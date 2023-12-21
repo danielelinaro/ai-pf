@@ -57,13 +57,24 @@ HVDC_P = {}
 ############################################################
 
 
-def _IC(dt, verbose=False):
+def _IC(dt, coiref=0, verbose=False):
+    coirefs = {'element': 0, 'coi': 1, 'center_of_inertia': 1, 'nominal_frequency': 2}
     ### compute the initial condition of the simulation
     inc = PF_APP.GetFromStudyCase('ComInc')
     inc.iopt_sim = 'rms'
     inc.iopt_coiref = 2
     inc.tstart = 0
     inc.dtgrd = dt    # [s]
+    if isinstance(coiref, str):
+        if coiref not in coirefs:
+            raise Exception('Accepted values for coiref are ' + ', '.join(coirefs.keys()))
+        inc.iopt_coiref = coirefs[coiref]
+    elif isinstance(coiref, int):
+        if coiref not in (0,1,2):
+            raise Exception('Accepted values for coiref are 0, 1, or 2')
+        inc.iopt_coiref = coiref
+    else:
+        raise Exception('coiref must be a string or an integer')
     err = inc.Execute()
     if err:
         raise Exception('Cannot compute initial condition')
@@ -605,6 +616,8 @@ def run_tran():
         print('{}: {}: no such file.'.format(progname, config_file))
         sys.exit(1)
     config = json.load(open(config_file, 'r'))
+    if 'coiref' not in config:
+        config['coiref'] = 'element'
 
     project_name = config['project_name']
     
@@ -689,8 +702,8 @@ def run_tran():
         _compute_measures(grid.frnom, verbosity_level>0)
 
     try:
-        inc = _IC(dt, verbosity_level>1)
-        res, _ = _set_vars_to_save(config['record'], verbosity_level>=2)
+        inc = _IC(dt, coiref=config['coiref'], verbose=verbosity_level>1)
+        res, _ = _set_vars_to_save(config['record'], verbosity_level>2)
         sim,dur,err = _tran(tstop, verbosity_level>1)
 
         interval = (0, None)
@@ -719,7 +732,7 @@ def run_tran():
 
     except:
         print('Cannot run simulation...')
-
+ 
     for load in stoch_loads:
         load.clean(verbosity_level>2)
 
@@ -782,6 +795,8 @@ def run_AC_analysis():
         print('{}: {}: no such file.'.format(progname, config_file))
         sys.exit(1)
     config = json.load(open(config_file, 'r'))
+    if 'coiref' not in config:
+        config['coiref'] = 'nominal_frequency'
 
     try:
         outdir = config['outdir']
@@ -817,6 +832,7 @@ def run_AC_analysis():
     Htot,Etot,Mtot,Stot,H,S,J,Pload,Qload,Psm,Qsm,Psg,Qsg = \
         _compute_measures(grid.frnom, verbosity_level>0)
     
+    inc = _IC(0.001, coiref=config['coiref'], verbose=verbosity_level>1)
     modal_analysis = PF_APP.GetFromStudyCase('ComMod')
     # modal_analysis.cinitMode          = 1
     modal_analysis.iSysMatsMatl       = 1
