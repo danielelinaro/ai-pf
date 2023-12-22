@@ -273,7 +273,7 @@ if __name__ == '__main__':
             v[idx[j]] = psd
             tmp = MxB @ v
             TF[i,:N_state_vars] += tmp**2
-            TF[i,N_state_vars:] += (C @ tmp)**2
+            TF[i,N_state_vars:] += (C @ tmp - Jgy_inv @ v)**2
     TF = np.sqrt(TF)
     TF[TF==0] = 1e-20 * (1+1j)
     mag = dB * np.log10(np.abs(TF))
@@ -284,15 +284,13 @@ if __name__ == '__main__':
         for k2,v in D.items():
             var_names.append(k1 + '.' + k2)
             idx.append(v)
-    jdx = np.argsort(idx)
-    var_names = [var_names[j] for j in jdx]
-    idx = np.sort(idx)
+    var_names = [var_names[i] for i in np.argsort(idx)]
 
     Htot = data['inertia']
     Etot = data['energy']
     Mtot = data['momentum']
     out = {'A': A, 'dB': dB, 'F': F, 'TF': TF, 'mag': mag, 'phase': phase,
-           'var_names': var_names, 'var_idx': idx, 'SM_names': SM_names,
+           'var_names': var_names, 'SM_names': SM_names,
            'Htot': Htot, 'Etot': Etot, 'Mtot': Mtot, 'H': H, 'S': S, 'P': P, 'Q': Q,
            'PF': data['PF_without_slack']}
     np.savez_compressed(os.path.join(outdir, outfile), **out)
