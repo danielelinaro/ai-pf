@@ -191,10 +191,8 @@ if __name__ == '__main__':
 
     I = np.eye(N_state_vars)
     M = np.zeros((N_freq, N_state_vars, N_state_vars), dtype=complex)    
-    TF = np.zeros((N_freq, N_state_vars), dtype=complex)
-    TF2 = np.zeros((N_freq, N_algebraic_vars), dtype=complex)
+    TF = np.zeros((N_freq, N_state_vars+N_algebraic_vars), dtype=complex)
 
-    bus_equiv_terms = data['bus_equiv_terms'].item()
     load_buses = data['load_buses'].item()
     all_load_names = []
     all_dP,all_dQ,all_sigmaP,all_sigmaQ = [],[],[],[]
@@ -230,6 +228,7 @@ if __name__ == '__main__':
         bus_name = load_buses[load_name]
         if bus_name not in vars_idx:
             # we have to look through the equivalent terms of bus_name
+            bus_equiv_terms = data['bus_equiv_terms'].item()
             for equiv_term_name in bus_equiv_terms[bus_name]:
                 if equiv_term_name in vars_idx:
                     print('Load {} is connected to bus {}, which is not among the '.
@@ -273,24 +272,29 @@ if __name__ == '__main__':
             v = np.zeros(N_algebraic_vars, dtype=float)
             v[idx[j]] = psd
             tmp = MxB @ v
-            TF[i,:] += tmp**2
-            #Deltay = C @ tmp # as many elements as the number of algebraic variables
-            #assert Deltay.size == N_algebraic_vars
-            TF2[i,:] += (C @ tmp)**2
-            #import ipdb
-            #ipdb.set_trace()
-    TF = np.sqrt(TF[:,data['omega_col_idx']])
-    #TF = np.sqrt(TF)
-    TF2 = np.sqrt(TF2)
+            TF[i,:N_state_vars] += tmp**2
+            TF[i,N_state_vars:] += (C @ tmp)**2
+    TF = np.sqrt(TF)
+    TF[TF==0] = 1e-20 * (1+1j)
     mag = dB * np.log10(np.abs(TF))
     phase = np.angle(TF)
-    
+    vars_idx = data['vars_idx'].item()
+    var_names,idx = [],[]
+    for k1,D in vars_idx.items():
+        for k2,v in D.items():
+            var_names.append(k1 + '.' + k2)
+            idx.append(v)
+    jdx = np.argsort(idx)
+    var_names = [var_names[j] for j in jdx]
+    idx = np.sort(idx)
+
     Htot = data['inertia']
     Etot = data['energy']
     Mtot = data['momentum']
-    out = {'Htot': Htot, 'Etot': Etot, 'Mtot': Mtot,
-           'F': F, 'TF': TF, 'TF2': TF2, 'mag': mag, 'phase': phase,
-           'SM_names': SM_names, 'H': H, 'S': S, 'P': P, 'Q': Q, 'dB': dB}
+    out = {'A': A, 'dB': dB, 'F': F, 'TF': TF, 'mag': mag, 'phase': phase,
+           'var_names': var_names, 'var_idx': idx, 'SM_names': SM_names,
+           'Htot': Htot, 'Etot': Etot, 'Mtot': Mtot, 'H': H, 'S': S, 'P': P, 'Q': Q,
+           'PF': data['PF_without_slack']}
     np.savez_compressed(os.path.join(outdir, outfile), **out)
 
     if save_mat:
