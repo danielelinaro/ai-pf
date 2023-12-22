@@ -13,18 +13,19 @@
 	"record": {
 		"ElmSym": {
 			"names": "G1",
-			"vars": ["s:xspeed", "m:u1r:bus1", "m:u1i:bus1", "m:U1:bus1", "m:U1l:bus1", "m:phiu1:bus1", "m:i1r:bus1", "m:i1i:bus1", "m:I1:bus1", "m:phii1:bus1"],
+			"vars": ["s:xspeed", "s:xphi"],
 			"attrs": ["loc_name", "pgini", "qgini", "typ_id.h", "typ_id.sgn"],
 			"devs_name": "gen"
 		},
-		"ElmLod": {
-			"names": "LD1",
-			"vars": ["m:u1r:bus1", "m:u1i:bus1", "m:U1:bus1", "m:U1l:bus1", "m:phiu1:bus1", "m:i1r:bus1", "m:i1i:bus1", "m:I1:bus1", "m:phii1:bus1"],
-			"attrs": ["loc_name", "plini", "qlini"],
-			"devs_name": "load"
+		"ElmTerm": {
+			"names": "Bus1",
+			"vars": ["m:ur", "m:ui", "m:fe"],
+			"attrs": ["loc_name", "uknom", "unknom"],
+			"devs_name": "bus"
 		}
 
 	},
-	"dt": 0.005,
-	"tstop": 600
+	"coiref": "element",
+	"dt": 5e-3,
+	"tstop": 14400
 }

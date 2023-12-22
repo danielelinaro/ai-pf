@@ -13,9 +13,15 @@
 	"record": {
 		"ElmSym": {
 			"names": "*",
-			"vars": ["s:xspeed"],
+			"vars": ["s:xspeed", "s:fe"],
 			"attrs": ["loc_name", "pgini", "qgini", "typ_id.h", "typ_id.sgn"],
 			"devs_name": "gen"
+		},
+		"ElmTerm": {
+			"names": ".*I2201A1______BUS_____",
+			"vars": ["m:fe", ],
+			"attrs": ["loc_name", "uknom", "unknom"],
+			"devs_name": "bus"
 		}
 	},
 	"dt": 5e-3,
