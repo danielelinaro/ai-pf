@@ -161,7 +161,8 @@ if __name__ == '__main__':
     F = np.logspace(fmin, fmax, N_freq)    
 
     data = np.load(data_file, allow_pickle=True)
-    SM_names = data['gen_names']
+    SM_names = [n for n in data['gen_names']]
+    bus_names = [n for n in data['voltages'].item().keys()]
     H = np.array([data['H'].item()[name] for name in SM_names])
     S = np.array([data['S'].item()[name] for name in SM_names])
     PF = data['PF_without_slack'].item()
@@ -290,7 +291,7 @@ if __name__ == '__main__':
     Etot = data['energy']
     Mtot = data['momentum']
     out = {'A': A, 'dB': dB, 'F': F, 'TF': TF, 'mag': mag, 'phase': phase,
-           'var_names': var_names, 'SM_names': SM_names,
+           'var_names': var_names, 'SM_names': SM_names, 'bus_names': bus_names,
            'Htot': Htot, 'Etot': Etot, 'Mtot': Mtot, 'H': H, 'S': S, 'P': P, 'Q': Q,
            'PF': data['PF_without_slack']}
     np.savez_compressed(os.path.join(outdir, outfile), **out)
