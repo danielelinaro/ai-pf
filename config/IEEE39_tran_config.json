@@ -16,8 +16,13 @@
 			"vars": ["s:xspeed"],
 			"attrs": ["loc_name", "pgini", "qgini", "typ_id.h", "typ_id.sgn"],
 			"devs_name": "gen"
-		}
-	},
+		},
+		"ElmTerm": {
+			"names": "*",
+			"vars": ["m:ur", "m:ui", "m:fe"],
+			"attrs": ["loc_name", "uknom", "unknom"],
+			"devs_name": "bus"
+		}	},
 	"dt": 0.005,
-	"tstop": 14400
+	"tstop": 7200
 }

@@ -342,6 +342,7 @@ def _set_vars_to_save(record_map, verbose=False):
 def _get_attributes(record_map, verbose=False):
     device_names = {}
     attributes = {}
+    ref_SMs = []
     if verbose: print('Getting the following attributes:')
     for dev_type in record_map:
         devices = _get_objects('*.' + dev_type)
@@ -351,8 +352,11 @@ def _get_attributes(record_map, verbose=False):
             key = dev_type
         device_names[key] = []
         attributes[key] = {}
+        names = record_map[dev_type]['names']
         for dev in devices:
-            if record_map[dev_type]['names'] == '*' or dev.loc_name in record_map[dev_type]['names']:
+            if (isinstance(names,str) and \
+                (names == '*' or re.match(names, dev.loc_name) is not None)) or \
+               (isinstance(names,list) and dev.loc_name in names):
                 if verbose: sys.stdout.write(f'{dev.loc_name}:')
                 if 'attrs' in record_map[dev_type]:
                     for attr_name in record_map[dev_type]['attrs']:
@@ -367,8 +371,10 @@ def _get_attributes(record_map, verbose=False):
                             attributes[key][attr_name].append(dev.GetAttribute(attr_name))
                         if verbose: sys.stdout.write(f' {attr_name}')
                 device_names[key].append(dev.loc_name)
+                if dev_type == 'ElmSym' and dev.ip_ctrl:
+                    ref_SMs.append(dev.loc_name)
                 if verbose: sys.stdout.write('\n')
-    return attributes, device_names
+    return attributes, device_names, ref_SMs
 
 
 def _get_data(res, record_map, data_obj, interval=(0,None), dt=None, verbose=False):
@@ -708,8 +714,7 @@ def run_tran():
 
         interval = (0, None)
         time,data = _get_data(res, config['record'], project, interval, dt, verbosity_level>1)
-        attributes, device_names = _get_attributes(config['record'], verbosity_level>2)
-    
+        attributes, device_names, ref_SMs = _get_attributes(config['record'], verbosity_level>2)
         blob = {'config': config,
                 'seed': seed,
                 'OU_seeds': seeds,
@@ -726,7 +731,8 @@ def run_tran():
                 'time': np.array(time, dtype=object),
                 'data': data,
                 'attributes': attributes,
-                'device_names': device_names}
+                'device_names': device_names,
+                'ref_SMs': ref_SMs}
     
         np.savez_compressed(outfile, **blob)
 
@@ -852,6 +858,7 @@ def run_AC_analysis():
     else:
         sys.stdout.write('done.\nSaving data... ')
         sys.stdout.flush()
+        ref_SMs = [sm.loc_name for sm in _get_objects('*.ElmSym') if sm.ip_ctrl]
         loads = _get_objects('*.ElmLod')
         load_buses, bus_equiv_terms = {}, {}
         for i,load in enumerate(loads):
@@ -903,7 +910,8 @@ def run_AC_analysis():
                 'omega_col_idx': omega_col_idx,
                 'gen_names': gen_names,
                 'load_buses': load_buses,
-                'bus_equiv_terms': bus_equiv_terms}
+                'bus_equiv_terms': bus_equiv_terms,
+                'ref_SMs': ref_SMs}
         np.savez_compressed(outfile, **data)
         print('done.')
 
@@ -1034,7 +1042,7 @@ def run_AC_tran_analysis():
             print('Cannot run simulation')
 
     if len(time) > 0:
-        attributes, device_names = _get_attributes(config['record'], verbosity_level>2)
+        attributes, device_names, ref_SMs = _get_attributes(config['record'], verbosity_level>2)
         blob = {'config': config,
                 'inertia': Htot,
                 'energy': Etot,
@@ -1050,7 +1058,8 @@ def run_AC_tran_analysis():
                 'time': np.array(time, dtype=object),
                 'data': data,
                 'attributes': attributes,
-                'device_names': device_names}    
+                'device_names': device_names,
+                'ref_SMs': ref_SMs}    
         np.savez_compressed(outfile, **blob)
 
     sin_load.clean(verbosity_level>1)
@@ -1157,14 +1166,15 @@ def run_load_step_sim():
         print('Cannot run transient simulation.')
         sys.exit(1)
 
-    attributes,device_names = _get_attributes(config['record'], verbosity_level>2)
+    attributes,device_names, ref_SMs = _get_attributes(config['record'], verbosity_level>2)
     time,data = _get_data(res, config['record'], project, verbosity_level>1)
 
     blob = {'config': config,
             'time': np.array(time, dtype=object),
             'data': data,
             'attributes': attributes,
-            'device_names': device_names}
+            'device_names': device_names,
+            'ref_SMs': ref_SMs}
 
     np.savez_compressed(outfile, **blob)
 
