@@ -1,31 +1,31 @@
 {
-    "project_name": "SM_with_load",
+	"db_name": "Terna_Inerzia",
+    "project_name": "SMs_with_line_and_loads",
     "grid_name": "Grid",
 	"library_name": "Library",
 	"user_models_name": "Dynamic Models",
 	"frame_name": "TimeVaryingLoadFrame",
 	"out_of_service": {"ElmGenstat": []},
 	"synch_mach": {"G1": {"typ_id.h": 4.0}},
-    "stoch_loads": ["LD1"],
+    "stoch_loads": ["LD1", "LD2"],
 	"limits": {"P": [1.0, 100], "Q": [-100.0, 100]},
 	"sigma": {"P": 0.01, "Q": 0.0},
 	"tau": {"P": 0.02, "Q": 0.02},
 	"record": {
 		"ElmSym": {
-			"names": "G1",
+			"names": "*",
 			"vars": ["s:xspeed"],
 			"attrs": ["loc_name", "pgini", "qgini", "typ_id.h", "typ_id.sgn"],
 			"devs_name": "gen"
 		},
 		"ElmTerm": {
-			"names": "Bus1",
+			"names": "*",
 			"vars": ["m:ur", "m:ui", "m:fe"],
 			"attrs": ["loc_name", "uknom", "unknom"],
 			"devs_name": "bus"
 		}
-
 	},
 	"coiref": "element",
-	"dt": 5e-3,
-	"tstop": 14440
+	"dt": 0.005,
+	"tstop": 14400
 }

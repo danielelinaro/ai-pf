@@ -637,7 +637,8 @@ def run_tran():
     rs,seed = _get_random_state(config)
     if verbosity_level > 0: print(f'Seed: {seed}.')
 
-    project_name = '\\Terna_Inerzia\\' + project_name
+    PF_db_name = config['db_name'] if 'db_name' in config else 'Terna_Inerzia'
+    project_name = '\\' + PF_db_name + '\\' + project_name
     project = _activate_project(project_name, verbosity_level>0)
     _print_network_info()
     
@@ -736,8 +737,9 @@ def run_tran():
     
         np.savez_compressed(outfile, **blob)
 
-    except:
-        print('Cannot run simulation...')
+    except Exception as inst:
+        print('Failed to run transient simulation:')
+        print(inst)
  
     for load in stoch_loads:
         load.clean(verbosity_level>2)
@@ -817,7 +819,8 @@ def run_AC_analysis():
         print(f'{progname}: output file `{outfile}` exists: use -f to overwrite.')
         sys.exit(1)
 
-    project_name = '\\Terna_Inerzia\\' + config['project_name']
+    PF_db_name = config['db_name'] if 'db_name' in config else 'Terna_Inerzia'
+    project_name = '\\' + PF_db_name + '\\' + config['project_name']
     project = _activate_project(project_name, verbosity_level>0)
     _print_network_info()
 
@@ -978,7 +981,8 @@ def run_AC_tran_analysis():
         print(f'{progname}: output file `{outfile}` exists: use -f to overwrite.')
         sys.exit(1)
 
-    project_name = '\\Terna_Inerzia\\' + project_name
+    PF_db_name = config['db_name'] if 'db_name' in config else 'Terna_Inerzia'
+    project_name = '\\' + PF_db_name + '\\' + project_name
     project = _activate_project(project_name, verbosity_level>0)
     _print_network_info()
 
@@ -1132,7 +1136,8 @@ def run_load_step_sim():
         print(f'{progname}: output file `{outfile}` exists: use -f to overwrite.')
         sys.exit(1)
 
-    project_name = '\\Terna_Inerzia\\' + config['project_name']
+    PF_db_name = config['db_name'] if 'db_name' in config else 'Terna_Inerzia'
+    project_name = '\\' + PF_db_name + '\\' + config['project_name']
     project = _activate_project(project_name, verbosity_level>0)
     _print_network_info()
 

@@ -1,5 +1,5 @@
 {
-    "project_name": "SM_with_line_and_loads",
+    "project_name": "SM_with_line_and_load",
     "grid_name": "Grid",
 	"library_name": "Library",
 	"user_models_name": "Dynamic Models",
@@ -16,8 +16,16 @@
 			"vars": ["s:xspeed"],
 			"attrs": ["loc_name", "pgini", "qgini", "typ_id.h", "typ_id.sgn"],
 			"devs_name": "gen"
+		},
+		"ElmTerm": {
+			"names": "Bus*",
+			"vars": ["m:ur", "m:ui", "m:fe"],
+			"attrs": ["loc_name", "uknom", "unknom"],
+			"devs_name": "bus"
 		}
+
 	},
-	"dt": 0.005,
+	"coiref": "element",
+	"dt": 5e-3,
 	"tstop": 14400
 }

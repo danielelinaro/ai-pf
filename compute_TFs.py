@@ -191,7 +191,7 @@ if __name__ == '__main__':
     assert np.all(np.abs(A-Atmp) < 1e-8)
 
     I = np.eye(N_state_vars)
-    M = np.zeros((N_freq, N_state_vars, N_state_vars), dtype=complex)    
+    M = np.zeros((N_freq, N_state_vars, N_state_vars), dtype=complex)
     TF = np.zeros((N_freq, N_state_vars+N_algebraic_vars), dtype=complex)
 
     load_buses = data['load_buses'].item()
@@ -220,6 +220,14 @@ if __name__ == '__main__':
             try_append(all_sigmaQ, sigmaQ, i)
     load_names = all_load_names
     dP,dQ,sigmaP,sigmaQ = all_dP,all_dQ,all_sigmaP,all_sigmaQ
+    def fix_len(lst1, lst2):
+        if len(lst1) == 1 and len(lst2) > 1:
+            return lst1*len(lst2)
+        return lst1
+    dP = fix_len(dP, load_names)
+    dQ = fix_len(dQ, load_names)
+    sigmaP = fix_len(sigmaP, load_names)
+    sigmaQ = fix_len(sigmaQ, load_names)
 
     PF_loads = data['PF_without_slack'].item()['loads']
     idx = []
@@ -286,7 +294,7 @@ if __name__ == '__main__':
             var_names.append(k1 + '.' + k2)
             idx.append(v)
     var_names = [var_names[i] for i in np.argsort(idx)]
-
+    
     Htot = data['inertia']
     Etot = data['energy']
     Mtot = data['momentum']
