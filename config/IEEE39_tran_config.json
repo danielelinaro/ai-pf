@@ -1,4 +1,5 @@
 {
+	"db_name": "Terna_Inerzia",
     "project_name": "IEEE39_stoch",
     "grid_name": "Grid",
 	"library_name": "Library",
@@ -22,7 +23,9 @@
 			"vars": ["m:ur", "m:ui", "m:fe"],
 			"attrs": ["loc_name", "uknom", "unknom"],
 			"devs_name": "bus"
-		}	},
+		}
+	},
+	"coiref": "element",
 	"dt": 0.005,
 	"tstop": 7200
 }

@@ -20,7 +20,7 @@ progname = os.path.basename(sys.argv[0])
 def usage(exit_code=None):
     print(f'usage: {progname} [-h | --help] [-m | --fmin <value>] [-M | --fmax <value>]')
     prefix = '       ' + ' ' * (len(progname)+1)
-    print(prefix + '[-N | --n-steps <value>] [--dB <10|20>] [--save-mat]')
+    print(prefix + '[-N | --n-steps <value>] [--save-mat]')
     print(prefix + '[-o | --outfile <value>] [-f | --force] [--tau <value>] ')
     print(prefix + '<--P | --Q | --PQ> <--dP | --sigmaP value1<,value2,...>>')
     print(prefix + '<--dQ | --sigmaQ value1<,value2,...>> <-L | --loads load1<,load2,...>> file')
@@ -33,7 +33,6 @@ if __name__ == '__main__':
     # default values    
     fmin,fmax = -6., 2.
     steps_per_decade = 100
-    dB = 20
     force = False
     save_mat = False
     outdir, outfile = '', None
@@ -84,12 +83,6 @@ if __name__ == '__main__':
         elif arg == '--tau':
             i += 1
             tau = float(sys.argv[i])
-        elif arg == '--dB':
-            i += 1
-            dB = int(sys.argv[i])
-            if dB not in (10,20):
-                print(f'{progname}: the option to --dB must be either 10 or 20.')
-                sys.exit(1)
         elif arg in ('-o','--outfile'):
             i += 1
             outfile = sys.argv[i]
@@ -190,10 +183,6 @@ if __name__ == '__main__':
     Atmp = Jfx - Jfy @ Jgy_inv @ Jgx
     assert np.all(np.abs(A-Atmp) < 1e-8)
 
-    I = np.eye(N_state_vars)
-    M = np.zeros((N_freq, N_state_vars, N_state_vars), dtype=complex)
-    TF = np.zeros((N_freq, N_state_vars+N_algebraic_vars), dtype=complex)
-
     load_buses = data['load_buses'].item()
     all_load_names = []
     all_dP,all_dQ,all_sigmaP,all_sigmaQ = [],[],[],[]
@@ -273,6 +262,12 @@ if __name__ == '__main__':
     c,alpha = np.array(c), np.array(alpha)
     B = -Jfy @ Jgy_inv
     C = -Jgy_inv @ Jgx
+    
+    N_inputs = c.size
+    I = np.eye(N_state_vars)
+    M = np.zeros((N_freq, N_state_vars, N_state_vars), dtype=complex)
+    TF = np.zeros((N_inputs, N_freq, N_state_vars+N_algebraic_vars), dtype=complex)
+
     for i in tqdm(range(N_freq), ascii=True, ncols=70):
         M[i,:,:] = np.linalg.inv(-A + 1j*2*np.pi*F[i]*I)
         MxB = M[i,:,:] @ B
@@ -281,12 +276,9 @@ if __name__ == '__main__':
             v = np.zeros(N_algebraic_vars, dtype=float)
             v[idx[j]] = psd
             tmp = MxB @ v
-            TF[i,:N_state_vars] += tmp**2
-            TF[i,N_state_vars:] += (C @ tmp - Jgy_inv @ v)**2
-    TF = np.sqrt(TF)
+            TF[j,i,:N_state_vars] = tmp
+            TF[j,i,N_state_vars:] = (C @ tmp - Jgy_inv @ v)
     TF[TF==0] = 1e-20 * (1+1j)
-    mag = dB * np.log10(np.abs(TF))
-    phase = np.angle(TF)
     vars_idx = data['vars_idx'].item()
     var_names,idx = [],[]
     for k1,D in vars_idx.items():
@@ -298,7 +290,7 @@ if __name__ == '__main__':
     Htot = data['inertia']
     Etot = data['energy']
     Mtot = data['momentum']
-    out = {'A': A, 'dB': dB, 'F': F, 'TF': TF, 'mag': mag, 'phase': phase,
+    out = {'A': A, 'F': F, 'TF': TF,
            'var_names': var_names, 'SM_names': SM_names, 'bus_names': bus_names,
            'Htot': Htot, 'Etot': Etot, 'Mtot': Mtot, 'H': H, 'S': S, 'P': P, 'Q': Q,
            'PF': data['PF_without_slack']}

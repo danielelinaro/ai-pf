@@ -1,4 +1,5 @@
 {
+	"db_name": "Terna_Inerzia",
     "project_name": "SM_with_load",
     "grid_name": "Grid",
 	"out_of_service": {"ElmGenstat": []},
