@@ -708,9 +708,22 @@ def run_tran():
     Htot,Etot,Mtot,Stot,H,S,J,Pload,Qload,Psm,Qsm,Psg,Qsg = \
         _compute_measures(grid.frnom, verbosity_level>0)
 
+    # for SM in _get_objects('*.ElmSym'):
+    #     bus = SM.bus1.cterm
+    #     if '___BUS___' not in bus.loc_name:
+    #         equiv_terms = bus.GetEquivalentTerminals()
+    #         busbars = [bb for bb in bus.GetConnectedMainBuses() if bb in equiv_terms]
+    #         if len(busbars) == 1:
+    #             sys.stdout.write('"{}",'.format(busbars[0].loc_name))
+    #         else:
+    #             import pdb
+    #             pdb.set_trace()
+    #     else:
+    #         sys.stdout.write('"{}",'.format(bus.loc_name))
+        
     try:
         inc = _IC(dt, coiref=config['coiref'], verbose=verbosity_level>1)
-        res, _ = _set_vars_to_save(config['record'], verbosity_level>2)
+        res, _ = _set_vars_to_save(config['record'], verbosity_level>1)
         sim,dur,err = _tran(tstop, verbosity_level>1)
 
         interval = (0, None)
@@ -884,6 +897,18 @@ def run_AC_analysis():
             # print('[{:03d}] {} -> {}'.format(i+1,load.loc_name,load_buses[load.loc_name]))
             equiv_terms_names = sorted([term.loc_name for term in equiv_terms])
             bus_equiv_terms[load_buses[load.loc_name]] = equiv_terms_names
+
+        buses = _get_objects('*.ElmTerm')
+        for i,bus in enumerate(buses):
+            equiv_terms = bus.GetEquivalentTerminals()
+            equiv_terms_names = [term.loc_name for term in equiv_terms if term != bus]
+            key = bus.loc_name
+            if key not in bus_equiv_terms:
+                bus_equiv_terms[key] = equiv_terms_names
+            else:
+                for name in equiv_terms_names:
+                    if name not in bus_equiv_terms[key]:
+                        bus_equiv_terms[key].append(name)
 
         A = parse_sparse_matrix_file(os.path.join(outdir, 'Amat.mtl'))
         J = parse_sparse_matrix_file(os.path.join(outdir, 'Jacobian.mtl'))

@@ -1,11 +1,15 @@
 {
+	"db_name": "Terna_Inerzia",
     "project_name": "V2020_Rete_Sard_2021_06_03cr_mod_loads",
     "grid_name": "Grid",
 	"library_name": "Library",
 	"user_models_name": "User Defined Models",
 	"frame_name": "TimeVaryingLoadFrame",
 	"out_of_service": {"ElmGenstat": []},
-	"synch_mach": {"FSACTI0201GGR3____GEN_____": {"typ_id.h": 5.8}},
+	"synch_mach": {
+		"FSACTI0201GGR3____GEN_____": {"typ_id.h": 5.8},
+		"CODCTI0201GGR1____GEN_____": {"ip_ctrl": 1}
+	},
     "stoch_loads": ["EqX_NARCDI1501TRB_____LOAD____"],
 	"limits": {"P": [-50.0, 50.0], "Q": [-50.0, 50.0]},
 	"sigma": {"P": 0.1, "Q": 0.0},
@@ -16,8 +20,22 @@
 			"vars": ["s:xspeed"],
 			"attrs": ["loc_name", "pgini", "qgini", "typ_id.h", "typ_id.sgn"],
 			"devs_name": "gen"
+		},
+		"ElmTerm": {
+			"names": [
+			"ASSCPI0151A1______BUS_____","ASSCPI0152A1______BUS_____","BMAC_I0101A1______BUS_____",
+			"BMSC_I0151A1______BUS_____","BNFC_I0601A1______BUS_____","CODCTI0201A1______BUS_____",
+			"FL1CZI0101A1______BUS_____","FL2CZI0101A1______BUS_____","FL3CZI0101A1______BUS_____",
+			"FSACTI0201A1______BUS_____","FSACTI0202A1______BUS_____","OZICZI0151A1______BUS_____",
+			"SELCTI0201A1______BUS_____","SLXCZI0152A1______BUS_____","SLXCZI0153A1______BUS_____",
+			"SULCTI0202A1______BUS_____","TIRC_I0101A1______BUS_____","TIRC_I0151A1______BUS_____"
+			],
+			"vars": ["m:ur", "m:ui", "m:fe"],
+			"attrs": ["loc_name", "uknom", "unknom"],
+			"devs_name": "bus"
 		}
 	},
+	"coiref": "element",
 	"dt": 5e-3,
 	"tstop": 3600
 }

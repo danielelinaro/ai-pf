@@ -28,6 +28,16 @@ def usage(exit_code=None):
         sys.exit(exit_code)
 
 
+def save_to_mat(mat_file, data_dict=None, npz_data_file=None):
+    from scipy.io import savemat
+    if data_dict is not None:
+        out = data_dict
+    else:
+        data = np.load(npz_data_file, allow_pickle=True)
+        out = {key: data[key] for key in data.files}
+    savemat(mat_file, out, long_field_names=True)
+
+
 if __name__ == '__main__':
 
     # default values    
@@ -111,6 +121,12 @@ if __name__ == '__main__':
         sys.exit(1)
     
     if not use_P_constraint and not use_Q_constraint:
+        if save_mat:
+            save_to_mat(os.path.join(outdir, os.path.splitext(outfile
+                                                              if outfile is not None
+                                                              else data_file)[0] + '.mat'),
+                        npz_data_file=data_file)
+            sys.exit(0)
         print(f'{progname}: at least one of --P and --Q must be specified.')
         sys.exit(1)
     
@@ -293,9 +309,9 @@ if __name__ == '__main__':
     out = {'A': A, 'F': F, 'TF': TF,
            'var_names': var_names, 'SM_names': SM_names, 'bus_names': bus_names,
            'Htot': Htot, 'Etot': Etot, 'Mtot': Mtot, 'H': H, 'S': S, 'P': P, 'Q': Q,
-           'PF': data['PF_without_slack']}
+           'PF': data['PF_without_slack'], 'bus_equiv_terms': data['bus_equiv_terms']}
     np.savez_compressed(os.path.join(outdir, outfile), **out)
 
     if save_mat:
-        from scipy.io import savemat
-        savemat(os.path.join(outdir, os.path.splitext(outfile)[0] + '.mat'), out)
+        save_to_mat(os.path.join(outdir, os.path.splitext(outfile)[0] + '.mat'),
+                    data_dict=out)
