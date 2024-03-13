@@ -20,10 +20,11 @@ progname = os.path.basename(sys.argv[0])
 def usage(exit_code=None):
     print(f'usage: {progname} [-h | --help] [-m | --fmin <value>] [-M | --fmax <value>]')
     prefix = '       ' + ' ' * (len(progname)+1)
-    print(prefix + '[-N | --n-steps <value>] [--save-mat]')
-    print(prefix + '[-o | --outfile <value>] [-f | --force] [--tau <value>] ')
-    print(prefix + '<--P | --Q | --PQ> <--dP | --sigmaP value1<,value2,...>>')
-    print(prefix + '<--dQ | --sigmaQ value1<,value2,...>> <-L | --loads load1<,load2,...>> file')
+    print(prefix + '[-N | --n-steps <value>] [--save-mat] [--F0 <value>]')
+    print(prefix + '[-o | --outfile <value>] [-f | --force] [--tau <value>]')
+    print(prefix + '[--ref-sm <name>] [--no-add-TF] <--P | --Q | --PQ>')
+    print(prefix + '<--dP | --sigmaP value1<,value2,...>> <--dQ | --sigmaQ value1<,value2,...>>')
+    print(prefix + '<-L | --loads load1<,load2,...>> file')
     if exit_code is not None:
         sys.exit(exit_code)
 
@@ -52,10 +53,13 @@ if __name__ == '__main__':
     sigmaP,sigmaQ = [],[]
     # time constant of the OU process
     tau = 20e-3
+    F0 = 50.
+    ref_SM_name = None
+    compute_additional_TFs = True
 
     i = 1
-    n_args = len(sys.argv)
-    while i < n_args:
+    N_args = len(sys.argv)
+    while i < N_args:
         arg = sys.argv[i]
         if arg in ('-h', '--help'):
             usage(0)
@@ -71,6 +75,8 @@ if __name__ == '__main__':
         elif arg in ('-L', '--loads'):
             i += 1
             load_names = sys.argv[i].split(',')
+        elif arg == '--no-add-TF':
+            compute_additional_TFs = False
         elif arg == '--P':
             use_P_constraint = True
         elif arg == '--Q':
@@ -90,9 +96,15 @@ if __name__ == '__main__':
         elif arg == '--sigmaQ':
             i += 1
             sigmaQ = list(map(float, sys.argv[i].split(',')))
+        elif arg == '--F0':
+            i += 1
+            F0 = float(sys.argv[i])
         elif arg == '--tau':
             i += 1
             tau = float(sys.argv[i])
+        elif arg == '--ref-sm':
+            i += 1
+            ref_SM_name = sys.argv[i]
         elif arg in ('-o','--outfile'):
             i += 1
             outfile = sys.argv[i]
@@ -107,10 +119,10 @@ if __name__ == '__main__':
             break
         i += 1
 
-    if i == n_args:
+    if i == N_args:
         print(f'{progname}: you must specify an input file')
         sys.exit(1)
-    if i == n_args-1:
+    if i == N_args-1:
         data_file = sys.argv[i]
     else:
         print(f'{progname}: arguments after project name are not allowed')
@@ -162,6 +174,10 @@ if __name__ == '__main__':
         print(f'{progname}: number of steps per decade must be > 0.')
         sys.exit(1)
 
+    if F0 <= 0:
+        print(f'{progname}: F0 must be > 0.')
+        sys.exit(1)
+
     if load_names is None:
         print(f'{progname}: you must specify the name of at least one load where the signal is injected.')
         sys.exit(1)
@@ -171,12 +187,14 @@ if __name__ == '__main__':
 
     data = np.load(data_file, allow_pickle=True)
     SM_names = [n for n in data['gen_names']]
+    if ref_SM_name is not None and ref_SM_name not in SM_names:
+        print(f'{progname}: {ref_SM_name} is not among the available synchronous machines.')
     bus_names = [n for n in data['voltages'].item().keys()]
     H = np.array([data['H'].item()[name] for name in SM_names])
     S = np.array([data['S'].item()[name] for name in SM_names])
     PF = data['PF_without_slack'].item()
-    n_SMs = len(SM_names)
-    P,Q = np.zeros(n_SMs), np.zeros(n_SMs)
+    N_SMs = len(SM_names)
+    P,Q = np.zeros(N_SMs), np.zeros(N_SMs)
     for i,name in enumerate(SM_names):
         if name in PF['SMs']:
             key = name
@@ -303,6 +321,37 @@ if __name__ == '__main__':
             idx.append(v)
     var_names = [var_names[i] for i in np.argsort(idx)]
     
+    if compute_additional_TFs:
+        if ref_SM_name is None:
+            print('Please select the synchronous machine to be used as a reference:')
+            for i,SM_name in enumerate(SM_names):
+                print('[{:2d}] {}'.format(i+1, SM_name))
+            while True:
+                try:
+                    idx = int(input(f'Enter a number between 1 and {N_SMs}: '))
+                except ValueError:
+                    continue
+                if idx > 0 and idx <= N_SMs:
+                    break
+            ref_SM_name = SM_names[idx-1]
+        print(f'Will use "{ref_SM_name}" as reference.')
+        ref_SM_idx = var_names.index(ref_SM_name+'.speed')
+        N_buses = len(bus_names)
+        TF2 = np.zeros((TF.shape[0], TF.shape[1], N_buses), dtype=complex)
+        for i in tqdm(range(N_buses), ascii=True, ncols=70):
+            name = bus_names[i]
+            idx = var_names.index(name+'.ur'), var_names.index(name+'.ui')
+            ur,ui = PF['buses'][name]['ur'], PF['buses'][name]['ui']
+            if ur != 0:
+                coeffs = -ui/ur**2/(1+(ui/ur)**2), 1/(ur*(1+(ui/ur)**2))
+                TF2[:,:,i] = coeffs[0]*TF[:,:,idx[0]] + coeffs[1]*TF[:,:,idx[1]]
+                TF2[:,:,i] *= 1j*2*np.pi*F # Δω = jωΔθ
+                TF2[:,:,i] /= 2*np.pi*F0 # !!! scaling factor !!!
+                TF2[:,:,i] += TF[:,:,ref_SM_idx]
+        var_names += [name+'.fe' for name in bus_names]
+        assert(len(var_names) == len(set(var_names)))
+        TF = np.concatenate((TF,TF2), axis=-1)
+        
     Htot = data['inertia']
     Etot = data['energy']
     Mtot = data['momentum']

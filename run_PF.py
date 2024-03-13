@@ -59,6 +59,7 @@ HVDC_P = {}
 
 def _IC(dt, coiref=0, verbose=False):
     coirefs = {'element': 0, 'coi': 1, 'center_of_inertia': 1, 'nominal_frequency': 2}
+    coiref_values = np.unique(list(coirefs.values()))
     ### compute the initial condition of the simulation
     inc = PF_APP.GetFromStudyCase('ComInc')
     inc.iopt_sim = 'rms'
@@ -70,8 +71,8 @@ def _IC(dt, coiref=0, verbose=False):
             raise Exception('Accepted values for coiref are ' + ', '.join(coirefs.keys()))
         inc.iopt_coiref = coirefs[coiref]
     elif isinstance(coiref, int):
-        if coiref not in (0,1,2):
-            raise Exception('Accepted values for coiref are 0, 1, or 2')
+        if coiref not in coiref_values:
+            raise Exception('Accepted values for coiref are {}'.format(','.join(list(map(str,coiref_values)))))
         inc.iopt_coiref = coiref
     else:
         raise Exception('coiref must be a string or an integer')
@@ -315,7 +316,7 @@ def _compute_measures(fn, verbose=False):
 def _set_vars_to_save(record_map, verbose=False):
     ### tell PowerFactory which variables should be saved to its internal file
     # speed, electrical power, mechanical torque, electrical torque, terminal voltage
-    res = PF_APP.GetFromStudyCase('*.ElmRes')
+    res = PF_APP.GetFromCase('*.ElmRes')
     device_names = {}
     if verbose: print('Adding the following quantities to the list of variables to be saved:')
     for dev_type in record_map:
@@ -822,7 +823,7 @@ def run_AC_analysis():
     try:
         outdir = config['outdir']
         if not os.path.isdir(outdir):
-            os.mkdir(outdir)
+            os.makedirs(outdir)
     except:
         outdir = '.'
         
