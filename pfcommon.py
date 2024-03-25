@@ -890,25 +890,25 @@ def parse_sparse_matrix_file(filename, sparse=False, one_based_indexes=True):
         return M.toarray()
     return M
 
+
+def _parse_line(line):
+    col_match = re.search('\d+', line)
+    col = int(col_match.group()) - 1
+    var_name_match = re.search('".*"', line)
+    var_name = var_name_match.group()[1:-1]
+    start = col_match.span()[1]
+    stop = var_name_match.span()[0]
+    model_name = line[start:stop].strip()
+    return col,model_name,var_name
+
+
 def parse_Amat_vars_file(filename):
-    def parse_line(line):
-        col = int(re.findall('\d+', line)[0]) - 1
-        var_name = re.findall('".*"', line)[0][1:-1]
-        for match in re.finditer('[a-zA-Z]+', line):
-            start = match.span()[0]
-            break
-        for match in re.finditer('"', line):
-            stop = match.span()[0]
-            break
-        model_name = line[start:stop].strip()
-        return col,model_name,var_name
-    
     cols, var_names, model_names = [], [], []
     with open(filename, 'r') as fid:
         for L in fid:
             line = L.strip()
             if line != '' and ';' not in line:
-                col,model_name,var_name = parse_line(line)
+                col,model_name,var_name = _parse_line(line)
                 cols.append(col)
                 model_names.append(model_name)
                 var_names.append(var_name)
@@ -934,13 +934,11 @@ def parse_Jacobian_vars_file(filename):
                 tokens = [token.lstrip() for token in line.split(';')]
                 var_type = tokens[2].lower()
             else:
-                idx = int(re.findall('\d+', line)[0]) - 1
-                try:
-                    var_name = re.findall('"[a-zA-Z0-9:_()]*"', line)[0][1:-1].replace(':bus1','')
-                except:
-                    import pdb
-                    pdb.set_trace()
-                obj_name = re.findall('[ ]+.*[ ]+', line)[0].strip().split('\\')[-1].split('.')[0]
+                ret = _parse_line(line)
+                idx = ret[0]
+                # obj_name = ret[1].split('\\')[-1].split('.')[0]
+                obj_name = ret[1].replace('\\', '-')
+                var_name = ret[2].replace(':bus1','')
                 if obj_name not in vars_idx:
                     vars_idx[obj_name] = OrderedDict()
                 vars_idx[obj_name][var_name] = idx

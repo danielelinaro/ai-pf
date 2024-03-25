@@ -200,6 +200,24 @@ def _apply_configuration(config, verbosity_level):
                 raise Exception(f'Do not know how to deal with key `{k}` in config["synch_mach"]')
         in_service,TO_TURN_OFF = _find_SMs_to_toggle(SM_dict)
     TO_TURN_ON += in_service
+    
+    if 'CIG' in config:
+        composite_models = _get_objects('*.ElmComp')
+        CIG_names = list(config['CIG'].keys())
+        for model in composite_models:
+            if model.loc_name in CIG_names:
+                element_names = list(config['CIG'][model.loc_name].keys())
+                for elem in model.pelm:
+                    if elem.loc_name in element_names:
+                        param_names = elem.typ_id.sParams[0].split(',')
+                        params = elem.params
+                        for k,value in config['CIG'][model.loc_name][elem.loc_name].items():
+                            idx = param_names.index(k)
+                            # elem.params[idx] = value does not set the parameter value
+                            params[idx] = value
+                            print('Parameter `{}` (no. {}) of element `{}` of model `{}` set to {}.'.\
+                                  format(k,idx,elem.loc_name,model.loc_name,value))
+                        elem.params = params
 
     # switch off the objects that are currently in service
     _turn_off_objects(in_service)
@@ -316,7 +334,7 @@ def _compute_measures(fn, verbose=False):
 def _set_vars_to_save(record_map, verbose=False):
     ### tell PowerFactory which variables should be saved to its internal file
     # speed, electrical power, mechanical torque, electrical torque, terminal voltage
-    res = PF_APP.GetFromCase('*.ElmRes')
+    res = PF_APP.GetFromStudyCase('*.ElmRes')
     device_names = {}
     if verbose: print('Adding the following quantities to the list of variables to be saved:')
     for dev_type in record_map:
@@ -366,7 +384,12 @@ def _get_attributes(record_map, verbose=False):
                         if '.' in attr_name:
                             obj = dev
                             for subattr in attr_name.split('.'):
-                                obj = obj.GetAttribute(subattr)
+                                if '[' in subattr:
+                                    idx = int(re.search('\[\d+\]', subattr)[0][1:-1])
+                                    subattr_name = subattr.split('[')[0]
+                                    obj = obj.GetAttribute(subattr_name)[idx]
+                                else:
+                                    obj = obj.GetAttribute(subattr)
                             attributes[key][attr_name].append(obj)
                         else:
                             attributes[key][attr_name].append(dev.GetAttribute(attr_name))
@@ -729,7 +752,7 @@ def run_tran():
 
         interval = (0, None)
         time,data = _get_data(res, config['record'], project, interval, dt, verbosity_level>1)
-        attributes, device_names, ref_SMs = _get_attributes(config['record'], verbosity_level>2)
+        attributes, device_names, ref_SMs = _get_attributes(config['record'], verbosity_level>1)
         blob = {'config': config,
                 'seed': seed,
                 'OU_seeds': seeds,
@@ -875,7 +898,16 @@ def run_AC_analysis():
     else:
         sys.stdout.write('done.\nSaving data... ')
         sys.stdout.flush()
-        ref_SMs = [sm.loc_name for sm in _get_objects('*.ElmSym') if sm.ip_ctrl]
+
+        ### SYNCHRONOUS MACHINES        
+        SMs = _get_objects('*.ElmSym')
+        gen_names = [obj.loc_name for obj in SMs]
+        ref_SMs = [sm.loc_name for sm in SMs if sm.ip_ctrl]
+        
+        # STATIC GENERATORS
+        static_gen_names = [obj.loc_name for obj in _get_objects('*.ElmGenStat')]
+
+        # LOADS
         loads = _get_objects('*.ElmLod')
         load_buses, bus_equiv_terms = {}, {}
         for i,load in enumerate(loads):
@@ -899,6 +931,7 @@ def run_AC_analysis():
             equiv_terms_names = sorted([term.loc_name for term in equiv_terms])
             bus_equiv_terms[load_buses[load.loc_name]] = equiv_terms_names
 
+        # BUSES
         buses = _get_objects('*.ElmTerm')
         for i,bus in enumerate(buses):
             equiv_terms = bus.GetEquivalentTerminals()
@@ -918,8 +951,7 @@ def run_AC_analysis():
         vars_idx,state_vars,voltages,currents,signals = \
             parse_Jacobian_vars_file(os.path.join(outdir,'VariableToIdx_Jacobian.txt'))
         omega_col_idx, = np.where([name == 'speed' for name in var_names])
-        gen_names = [os.path.splitext(os.path.basename(model_names[i]))[0] \
-                     for i in omega_col_idx]
+
         data = {'config': config,
                 'inertia': Htot,
                 'energy': Etot,
@@ -938,6 +970,7 @@ def run_AC_analysis():
                 'model_names': model_names,
                 'omega_col_idx': omega_col_idx,
                 'gen_names': gen_names,
+                'static_gen_names': static_gen_names,
                 'load_buses': load_buses,
                 'bus_equiv_terms': bus_equiv_terms,
                 'ref_SMs': ref_SMs}

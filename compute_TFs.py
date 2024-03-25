@@ -189,6 +189,7 @@ if __name__ == '__main__':
     SM_names = [n for n in data['gen_names']]
     if ref_SM_name is not None and ref_SM_name not in SM_names:
         print(f'{progname}: {ref_SM_name} is not among the available synchronous machines.')
+    static_gen_names = [n for n in data['static_gen_names']] if 'static_gen_names' in data else None
     bus_names = [n for n in data['voltages'].item().keys()]
     H = np.array([data['H'].item()[name] for name in SM_names])
     S = np.array([data['S'].item()[name] for name in SM_names])
@@ -271,11 +272,23 @@ if __name__ == '__main__':
                     break
         if use_P_constraint:
             # real part of voltage
-            idx.append(vars_idx[bus_name]['ur'])
+            vars_idx_keys = list(vars_idx.keys())
+            ks = [key for key in vars_idx_keys if bus_name in key]
+            if len(ks) == 1:
+                idx.append(vars_idx[ks[0]]['ur'])
+            else:
+                import pdb
+                pdb.set_trace()
             keys.append('P')
         if use_Q_constraint:
             # imaginary part of voltage
-            idx.append(vars_idx[bus_name]['ui'])
+            vars_idx_keys = list(vars_idx.keys())
+            ks = [key for key in vars_idx_keys if bus_name in key]
+            if len(ks) == 1:
+                idx.append(vars_idx[bus_name]['ui'])
+            else:
+                import pdb
+                pdb.set_trace()
             keys.append('Q')
         for key in keys:
             mean = PF_loads[load_name][key]
@@ -335,12 +348,21 @@ if __name__ == '__main__':
                     break
             ref_SM_name = SM_names[idx-1]
         print(f'Will use "{ref_SM_name}" as reference.')
-        ref_SM_idx = var_names.index(ref_SM_name+'.speed')
+        full_var_names = [name for name in var_names if ref_SM_name in name and '.speed' in name]
+        if len(full_var_names) == 1:
+            full_var_name = full_var_names[0]
+        else:
+            import pdb
+            pdb.set_trace()
+        ref_SM_idx = var_names.index(full_var_name)
         N_buses = len(bus_names)
         TF2 = np.zeros((TF.shape[0], TF.shape[1], N_buses), dtype=complex)
         for i in tqdm(range(N_buses), ascii=True, ncols=70):
-            name = bus_names[i]
-            idx = var_names.index(name+'.ur'), var_names.index(name+'.ui')
+            # name = bus_names[i]
+            # idx = var_names.index(name+'.ur'), var_names.index(name+'.ui')
+            ### FIX THIS IN THE POWER FLOW LABELS
+            name = bus_names[i].split('-')[-1].split('.')[0]
+            idx = var_names.index(bus_names[i]+'.ur'), var_names.index(bus_names[i]+'.ui')
             ur,ui = PF['buses'][name]['ur'], PF['buses'][name]['ui']
             if ur != 0:
                 coeffs = -ui/ur**2/(1+(ui/ur)**2), 1/(ur*(1+(ui/ur)**2))
@@ -355,8 +377,8 @@ if __name__ == '__main__':
     Htot = data['inertia']
     Etot = data['energy']
     Mtot = data['momentum']
-    out = {'A': A, 'F': F, 'TF': TF,
-           'var_names': var_names, 'SM_names': SM_names, 'bus_names': bus_names,
+    out = {'A': A, 'F': F, 'TF': TF, 'var_names': var_names, 'SM_names': SM_names,
+           'static_gen_names': static_gen_names, 'bus_names': bus_names,
            'Htot': Htot, 'Etot': Etot, 'Mtot': Mtot, 'H': H, 'S': S, 'P': P, 'Q': Q,
            'PF': data['PF_without_slack'], 'bus_equiv_terms': data['bus_equiv_terms']}
     np.savez_compressed(os.path.join(outdir, outfile), **out)
