@@ -48,7 +48,7 @@ TO_TURN_ON = []
 TO_TURN_OFF = []
 # HVDCs contains the loads that model the HVDC connections in the Sardinia network 
 HVDCs = []
-# HVDC_P contains the default values of absorbed active powert of the HVDCs
+# HVDC_P contains the default values of absorbed active power of the HVDCs
 HVDC_P = {}
 
 
@@ -890,13 +890,14 @@ def run_AC_analysis():
     sys.stdout.write('Running modal analysis... ')
     sys.stdout.flush()
     err = modal_analysis.Execute()
+    print('done.')
 
     _restore_network_state(verbosity_level>2)
 
     if err:
         print('ERROR!')
     else:
-        sys.stdout.write('done.\nSaving data... ')
+        sys.stdout.write('Saving data... ')
         sys.stdout.flush()
 
         ### SYNCHRONOUS MACHINES        

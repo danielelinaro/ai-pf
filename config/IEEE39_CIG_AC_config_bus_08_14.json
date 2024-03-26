@@ -1,0 +1,29 @@
+{
+	"db_name": "Terna_Inerzia",
+    "project_name": "IEEE39_stoch_CIG",
+    "grid_name": "Grid",
+	"out_of_service": {
+		"ElmTerm": ["Bus 270", "Bus 36 bis", "Converter Wind farm bus 270", "Converter Wind farm bus 36 bis"],
+		"ElmSind": ["Lf Wind Bus 270", "Lf Wind Bus 36 bis"],
+		"ElmTr2": ["Trf 23 - 36 bis", "Trf 27 - 270"],
+		"ElmGenstat": ["Wind farm bus 270", "Wind farm bus 36 bis"],
+		"ElmShnt": ["Shunt/Filter VSG Wind bus 270", "Shunt/Filter VSG Wind bus 36 bis"],
+		"ElmComp": ["VSM Bus 27", "VSM Bus 36"],
+		"ElmPhi__pll": ["Phase Measurement Device PLL-Type VSG 27", "Phase Measurement Device PLL-Type VSG 36"],
+		"StaImea": ["Phase Measurement Device PLL-Type VSG 27", "Current Measurement io VSG 27",
+		"Phase Measurement Device PLL-Type VSG 36", "Current Measurement io VSG 36"],
+		"StaPqmea": ["PQ Measurement VSG 27", "PQ Measurement VSG 36"],
+		"StaVmea": ["Voltage Measurement vo VSG 27", "Voltage Measurement vo VSG 36"],
+		"ElmDsl": ["CM-dq/ri transformation VSG 27", "CM - Measurement Processing VSG 27", "CM - RPC VSG 27", "CM - Power Control VSG 27",
+		"CM - Active Damping VSG 27", "CM - Virtual Impedance VSG 27", "CM - Voltage Control VSG 27", "CM - Current Control VSG 27",
+		"CM-dq/ri transformation VSG 36", "CM - Measurement Processing VSG 36", "CM - RPC VSG 36", "CM - Power Control VSG 36",
+		"CM - Active Damping VSG 36", "CM - Virtual Impedance VSG 36", "CM - Voltage Control VSG 36", "CM - Current Control VSG 36"]
+	},
+	"synch_mach": {"G 02": {"typ_id.h": 4.329}},
+	"CIG": {
+		"VSM Bus 08": {"CM - Power Control VSG 08": {"Ta": 7}},
+		"VSM Bus 14": {"CM - Power Control VSG 14": {"Ta": 7}}
+	},
+	"coiref": "element",
+	"outdir": "C:\\Users\\Terna_Inerzia\\Desktop\\modal_analysis\\IEEE39_CIG\\Bus_08_14\\Ta=7\\static_load_const_Z"
+}

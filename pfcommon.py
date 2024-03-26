@@ -14,7 +14,7 @@ __all__ = ['BaseParameters', 'AutomaticVoltageRegulator', 'TurbineGovernor',
            'compute_generator_inertias', 'sort_objects_by_name', 'get_objects',
            'make_full_object_name', 'build_network_graph', 'Node', 'Edge',
            'parse_sparse_matrix_file', 'parse_Amat_vars_file', 'parse_Jacobian_vars_file',
-           'compute_TF']
+           'compute_TF', 'compute_TF_multiple_inputs']
 
 
 class BaseParameters (tables.IsDescription):
@@ -972,3 +972,96 @@ def compute_TF(J, fmin, fmax, Nf, col_idx=0):
         # alternatively:
         #TF[i,:] = M[i,:,col_idx].T.sum(axis=1)
     return TF,F,M
+
+
+def compute_TF_multiple_inputs(TF, var_name, device_names, network_var_names,
+                               ref_SM_name, freq, ref_freq, PF, bus_equiv_terms, dB=20):
+
+    def find_var_name(all_names, obj_name, var_name):
+        full_names = [name for name in all_names if re.search(obj_name+'\.', name) is not None \
+                      and re.search('\.{}$'.format(var_name), name) is not None]
+        if len(full_names) == 0:
+            return None
+        if len(full_names) == 1:
+            return np.where(all_names == full_names[0])[0][0]
+        print(full_names)
+        raise Exception('{} instances of variables containing `{}` and `{}`'.\
+                        format(len(full_names), obj_name, var_name))    
+
+    TF_total = {}
+    for name in device_names:
+        if var_name == 's:xspeed':
+            idx = find_var_name(network_var_names, name, 'speed')
+            if idx is None:
+                idx = find_var_name(network_var_names, name, 'xspeed')
+                if idx is None:
+                    raise Exception('Cannot find variable `{}` of object `{}`'.\
+                                    format(var_name, name))
+            TF_total[name] = np.sqrt(np.sum(TF[:,:,idx]**2, axis=0))
+        elif var_name in ('m:ur','m:ui'):
+            u = var_name.split(':')[1]
+            idx = find_var_name(network_var_names, name, u)
+            if idx is None:
+                for equiv_term in bus_equiv_terms[name]:
+                    idx = find_var_name(network_var_names, equiv_term, u)
+                    if idx is not None:
+                        break
+            if idx is None:
+                raise Exception('Cannot find variable `{}` of object `{}`'.\
+                                format(var_name, name))
+            TF_total[name] = np.sqrt(np.sum(TF[:,:,idx]**2, axis=0))
+        elif var_name == 'U':
+            idx_ur = find_var_name(network_var_names, name, 'ur')
+            if idx_ur is not None:
+                idx_ui = find_var_name(network_var_names, name, 'ui')
+                ur,ui = PF['buses'][name]['ur'], PF['buses'][name]['ui']
+            else:
+                for equiv_term in bus_equiv_terms[name]:
+                    idx_ur = find_var_name(network_var_names, equiv_term, 'ur')
+                    if idx_ur is not None:
+                        idx_ui = find_var_name(network_var_names, equiv_term, 'ui')
+                        ur,ui = PF['buses'][equiv_term]['ur'], PF['buses'][equiv_term]['ui']
+                        break
+                if idx is None:
+                    raise Exception('Cannot find variable `{}` of object `{}`'.\
+                                    format(var_name, name))
+            if ur == 0:
+                print('{}: ur,ui = ({:g},{:g})'.format(name, ur, ui))
+                continue
+            coeff_ur,coeff_ui = np.array([ur,ui]) / np.sqrt(ur**2+ui**2)
+            tmp = coeff_ur*TF[:,:,idx_ur] + coeff_ui*TF[:,:,idx_ui]
+            TF_total[name] = np.sqrt(np.sum(tmp**2, axis=0))
+        elif var_name in ('m:fe','theta','omega'):
+            idx_ur = find_var_name(network_var_names, name, 'ur')
+            if idx_ur is not None:
+                idx_ui = find_var_name(network_var_names, name, 'ui')
+                ur,ui = PF['buses'][name]['ur'], PF['buses'][name]['ui']
+            else:
+                for equiv_term in bus_equiv_terms[name]:
+                    idx_ur = find_var_name(network_var_names, equiv_term, 'ur')
+                    if idx_ur is not None:
+                        idx_ui = find_var_name(network_var_names, equiv_term, 'ui')
+                        ur,ui = PF['buses'][equiv_term]['ur'], PF['buses'][equiv_term]['ui']
+                        break
+                if idx is None:
+                    raise Exception('Cannot find variable `{}` of object `{}`'.\
+                                    format(var_name, name))
+            if ur == 0:
+                print('{}: ur,ui = ({:g},{:g})'.format(name, ur, ui))
+                continue
+            coeff_ur = -ui/ur**2/(1+(ui/ur)**2)
+            coeff_ui = 1/(ur*(1+(ui/ur)**2))
+            tmp = coeff_ur*TF[:,:,idx_ur] + coeff_ui*TF[:,:,idx_ui]
+            if var_name in ('m:fe','omega'):
+                tmp *= 1j*2*np.pi*freq # Δω = jωΔθ
+                if var_name == 'm:fe':
+                    ref_SM_idx = find_var_name(network_var_names, ref_SM_name, 'speed')
+                    if ref_SM_idx is None:
+                        raise Exception('Cannot find variable `speed` of object `{}`'.\
+                                        format(ref_SM_name))
+                    tmp /= 2*np.pi*ref_freq # !!! scaling factor !!!
+                    tmp += TF[:,:,ref_SM_idx]
+            TF_total[name] = np.sqrt(np.sum(tmp**2, axis=0))
+    if dB is None:
+        return TF_total
+    return TF_total, {k: dB*np.log10(np.abs(v)) for k,v in TF_total.items()}
