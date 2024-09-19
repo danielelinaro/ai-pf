@@ -28,6 +28,9 @@
 	"CIG": {
 		"VSM Bus 14": {"CM - Power Control VSG 14": {"Ta": 7}}
 	},
+	"DSL": {
+		"AVR 02": {"Ka": 8}
+	},
 	"coiref": "element",
 	"outdir": "C:\\Users\\Terna_Inerzia\\Desktop\\modal_analysis\\IEEE39_CIG\\Bus_14\\Ta=7\\static_load_const_Z"
 }

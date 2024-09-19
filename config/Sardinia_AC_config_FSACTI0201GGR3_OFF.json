@@ -1,9 +1,0 @@
-{
-    "project_name": "V2020_Rete_Sardegna_2021_06_03cr",
-    "grid_name": "Grid",
-	"out_of_service": {"ElmGenstat": []},
-	"synch_mach": {"FSACTI0201GGR3____GEN_____": 0},
-	"F_log10": [-3, 2],
-	"steps_per_decade": 100,
-	"outdir": "C:\\Users\\Terna_Inerzia\\Desktop\\modal_analysis\\Sardinia\\FSACTI0201GGR3_OFF"
-}

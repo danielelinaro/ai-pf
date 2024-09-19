@@ -6,7 +6,7 @@ import numpy as np
 
 __all__ = ['BaseParameters', 'AutomaticVoltageRegulator', 'TurbineGovernor',
            'Load', 'SynchronousMachine', 'PowerPlant', 'Bus', 'Transformer',
-           'Line', 'Shunt', 'SeriesCapacitor', 'CommonImpedance',
+           'Line', 'Shunt', 'SeriesCapacitor', 'CommonImpedance', 'ACVoltageSource',
            'get_simulation_variables', 'get_simulation_time', 'get_simulation_dt',
            'get_ID', 'get_line_bus_IDs', 'normalize', 'OU', 'OU_2', 'run_power_flow',
            'print_power_flow', 'correct_traces', 'find_element_by_name',
@@ -23,10 +23,13 @@ class BaseParameters (tables.IsDescription):
 
 
 def _bus_name_to_terminal_name(bus):
-    return 'bus{}'.format(int(re.findall('\d+', bus)[0]))
+    #return 'bus{}'.format(int(re.findall('\d+', bus)[0]))
+    return 'term_{}'.format(bus.lower())
 
 def _read_element_parameters(element, par_names=None, type_par_names=None, bus_names=['bus1']):
     data = {'name': re.sub('^[0-9]*', '', element.loc_name).replace(' ','').replace('-','')}
+    if len(data['name']) == 0:
+        data['name'] = None
     if bus_names is not None and len(bus_names) > 0:
         data['terminals'] = [element.GetAttribute(bus_name).cterm.loc_name
                              for bus_name in bus_names]
@@ -208,6 +211,21 @@ class PowerPlant (object):
         return avr_str + '\n\n' + gov_str + '\n\n' + sm_str
 
 
+class ACVoltageSource (object):
+    def __init__(self, vac):
+        data = _read_element_parameters(vac, {'Unom': 'vb',
+                                              'R1': 'rseries',
+                                              'X1': 'xseries'})
+        for k,v in data.items():
+            self.__setattr__(k,v)
+        self.vb *= 1e3
+
+    def __str__(self):
+        return '{} {:5s} vsource vdc={:.6e}' \
+                .format(self.name,
+                        _bus_name_to_terminal_name(self.terminals[0]),
+                        self.vb)
+
 class Load (object):
     def __init__(self, load):
         data = _read_element_parameters(load, {'plini': 'pc', 'qlini': 'qc'})
@@ -225,18 +243,15 @@ class Load (object):
 
 class Line (object):
     def __init__(self, line):
-        par_names = {'dline': 'length', 'nlnum': 'num'}
-        type_par_names = {'uline': 'vrating', 'rline': 'r', 'xline': 'x', 'bline': 'b'}
+        par_names = {'dline': 'length', 'nlnum': 'num', 'R1': 'r', 'X1': 'x', 'B1': 'b'}
+        type_par_names = {}
         bus_names = ['bus1', 'bus2']
         data = _read_element_parameters(line, par_names, type_par_names, bus_names)
         for k,v in data.items():
             self.__setattr__(k, v)
         if self.num > 1:
             print(f'Line {self.name} has {self.num} parallel lines.')
-        self.r *= self.length
-        self.x *= self.length
-        self.b *= self.length * 1e-6
-        self.vrating *= 1e3
+        self.vrating = line.bus1.cterm.uknom*1e3
         self.utype = 1
 
     def __str__(self):
@@ -332,6 +347,8 @@ class Bus (object):
         data = _read_element_parameters(bus, {'uknom': 'vb'}, bus_names=None)
         for k,v in data.items():
             self.__setattr__(k, v)
+        if self.name is None:
+            self.name = 'Bus_' + bus.loc_name
         self.vb *= 1e3
         self.v0 = bus.GetAttribute('m:u')
         self.theta0 = bus.GetAttribute('m:phiu')
@@ -340,7 +357,7 @@ class Bus (object):
     def __str__(self):
         return '{} {:5s} powerbus vb={:.6e} v0={:.6e} theta0={:.6e}' \
                 .format(self.name, self.terminal, self.vb, self.v0, self.theta0)
-
+                
 def get_objects(app, pattern, keep_out_of_service=False):
     if pattern[:2] != '.*':
         pattern = '.*' + pattern
@@ -715,7 +732,12 @@ def run_power_flow(app, project_folder=None, study_case_name=None, verbose=False
     # positive-sequence quantity
     Ptot, Qtot = 0, 0
     for sm in get_objects('ElmSym'):
-        pq = [sm.GetAttribute(f'm:{c}sum:bus1') for c in 'PQ'] # [MW,Mvar]
+        try:
+            pq = [sm.GetAttribute(f'm:{c}sum:bus1') for c in 'PQ'] # [MW,Mvar]
+        except:
+            SMs = get_objects('ElmSym')
+            import pdb
+            pdb.set_trace()        
         results['SMs'][sm.loc_name] = {
             'P':      pq[0], # [MW]
             'Q':      pq[1], # [Mvar]

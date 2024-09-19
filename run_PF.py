@@ -78,6 +78,9 @@ def _IC(dt, coiref=0, verbose=False):
         raise Exception('coiref must be a string or an integer')
     err = inc.Execute()
     if err:
+        with open('PF_output_window_msgs.txt','w') as fid:
+            for msg in PF_APP.GetOutputWindow().GetContent():
+                fid.write(msg + '\n')
         raise Exception('Cannot compute initial condition')
     elif verbose:
         print(f'Successfully computed initial condition (dt = {dt*1e3:.1f} ms).')
@@ -145,18 +148,18 @@ def _find_objects(to_find, verbose=False):
 
 def _turn_on_off_objects(objs, outserv, verbose=False):
     for obj in objs:
-        if obj.HasAttribute('outserv'):
+        if obj.HasAttribute('outserv') and obj.outserv != outserv:
             obj.outserv = outserv
             if verbose:
                 print('Turned {} device `{}`.'.format('OFF' if outserv else 'ON', obj.loc_name))
-        elif verbose:
+        elif not obj.HasAttribute('outserv') and verbose:
             print('Device `{}` does not have an outserv attribute.'.format(obj.loc_name))
 _turn_on_objects  = lambda objs, verbose=False: _turn_on_off_objects(objs, False, verbose)
 _turn_off_objects = lambda objs, verbose=False: _turn_on_off_objects(objs, True, verbose)
 
 
 def _find_SMs_to_toggle(synch_mach):
-    in_service, out_of_service = [], []
+    in_service, out_of_service = {}, {}
     # synchronous machines that change their status
     SMs = [sm for sm in PF_APP.GetCalcRelevantObjects('*.ElmSym') \
            if sm.loc_name in synch_mach.keys() and sm.outserv == synch_mach[sm.loc_name]]
@@ -165,13 +168,36 @@ def _find_SMs_to_toggle(synch_mach):
         substations = {obj.loc_name: substation for substation in \
                        PF_APP.GetCalcRelevantObjects('*.ElmSubstat') \
                        for obj in substation.GetContents() if obj in SMs}
-        for name,substation in substations.items():
-            for obj in substation.GetContents():
-                if obj.HasAttribute('outserv'):
-                    if obj.outserv:
-                        out_of_service.append(obj)
+        # composite models
+        CMs = _get_objects('*.ElmComp')
+
+        def append_to_list(obj, inserv, outserv):
+            if obj is not None and obj.HasAttribute('outserv') and \
+                obj not in inserv and obj not in outserv:
+                # print(f'{obj.loc_name}.outserv = {obj.outserv}')
+                if obj.outserv:
+                    outserv.append(obj)
+                else:
+                    inserv.append(obj)
+
+        for SM in SMs:
+            inserv = [] if SM.outserv else [SM]
+            outserv = [SM] if SM.outserv else []
+            if SM.loc_name in substations:
+                for obj in substations[SM.loc_name].GetContents():
+                    if obj in CMs and obj.HasAttribute('pelm') and obj.pelm is not None:
+                        for elem in obj.pelm:
+                            append_to_list(elem, inserv, outserv)
                     else:
-                        in_service.append(obj)
+                        append_to_list(obj, inserv, outserv)
+            # c_pmod is the plant model
+            if SM.HasAttribute('c_pmod') and SM.c_pmod is not None:
+                for obj in SM.c_pmod.pelm:
+                    append_to_list(obj, inserv, outserv)
+            if len(inserv) > 0:
+                in_service[SM.loc_name] = inserv
+            if len(outserv) > 0:
+                out_of_service[SM.loc_name] = outserv
     return in_service, out_of_service
 
 
@@ -181,11 +207,14 @@ def _apply_configuration(config, verbosity_level):
                   if not obj.outserv]
     _turn_off_objects(TO_TURN_ON, verbosity_level>2)
 
-    in_service = []
     if 'synch_mach' in config:
         SM_dict = {}
         for k,v in config['synch_mach'].items():
-            if isinstance(v, int):
+            if k == 'config':
+                SM_config = json.load(open(v,'r'))
+                for name,state in SM_config.items():
+                    SM_dict[name] = state
+            elif isinstance(v, int):
                 SM_dict[k] = v
             elif isinstance(v, dict):
                 SM = _find_object('*.ElmSym', k)
@@ -198,9 +227,26 @@ def _apply_configuration(config, verbosity_level):
                         obj.SetAttribute(subattrs[-1], value)
             else:
                 raise Exception(f'Do not know how to deal with key `{k}` in config["synch_mach"]')
-        in_service,TO_TURN_OFF = _find_SMs_to_toggle(SM_dict)
-    TO_TURN_ON += in_service
-    
+        inserv,outserv = _find_SMs_to_toggle(SM_dict)
+        for SM,objs in inserv.items():
+            # objs are objects currently IN SERVICE
+            if SM_dict[SM] == 0:
+                # do something only if the SM should be swiched OFF
+                TO_TURN_ON += objs
+        for SM,objs in outserv.items():
+            # objs are objects currently OUT OF SERVICE
+            if SM_dict[SM] == 1:
+                # do something only if the SM should be swiched ON
+                TO_TURN_OFF += objs
+
+    # switch off the objects that are currently in service
+    _turn_off_objects(TO_TURN_ON, verbosity_level>2)
+
+    # switch on the objects that are currently out of service, i.e., they will
+    # have to be turned off at the end
+    _turn_on_objects(TO_TURN_OFF, verbosity_level>2)
+
+    # set parameter values according to the configuration
     if 'CIG' in config:
         composite_models = _get_objects('*.ElmComp')
         CIG_names = list(config['CIG'].keys())
@@ -218,23 +264,54 @@ def _apply_configuration(config, verbosity_level):
                             print('Parameter `{}` (no. {}) of element `{}` of model `{}` set to {}.'.\
                                   format(k,idx,elem.loc_name,model.loc_name,value))
                         elem.params = params
-
-    # switch off the objects that are currently in service
-    _turn_off_objects(in_service)
-    # switch on the objects that are currently out of service, i.e., they will
-    # have to be turned off at the end
-    _turn_on_objects(TO_TURN_OFF)
+                        
+    if 'DSL' in config:
+        DSL_models = _get_objects('*.ElmDsl')
+        DSL_names = list(config['DSL'].keys())
+        for model in DSL_models:
+            if model.loc_name in DSL_names:
+                param_names = model.typ_id.sParams[0].split(',')
+                params = model.params
+                for k,value in config['DSL'][model.loc_name].items():
+                    idx = param_names.index(k)
+                    # elem.params[idx] = value does not set the parameter value
+                    params[idx] = value
+                    print('Parameter `{}` (no. {}) of model `{}` set to {}.'.\
+                          format(k,idx,model.loc_name,value))
+                model.params = params
+ 
+    match_gen_cons = 'match_gen_cons' in config and config['match_gen_cons']
+    if match_gen_cons:
+        SMs = _get_objects('*.ElmSym')
+        SGs = _get_objects('*.ElmGenStat')
+        loads = _get_objects('*.ElmLod')
+        P_SMs = np.array([sm.pgini for sm in SMs])
+        P_SGs = np.array([sg.pgini for sg in SGs])
+        P_loads = np.array([ld.plini for ld in loads])
+        Ptot_SMs = P_SMs.sum()
+        Ptot_SGs = P_SGs.sum()
+        Ptot_loads = P_loads.sum()
+        if np.abs((Ptot_SMs+Ptot_SGs) - Ptot_loads) > 100:
+            P_match = config['P_match'] if 'P_match' in config else 1
+            P_coeff = abs(Ptot_loads/(Ptot_SMs+Ptot_SGs)) * P_match
+            for ld in loads:
+                ld.plini /= P_coeff
+            P_loads = np.array([ld.plini for ld in loads])
+            assert np.abs(P_loads.sum()*P_match - (Ptot_SMs+Ptot_SGs)) < 1
 
     # Run a power flow analysis
-    PF1 = run_power_flow(PF_APP)
+    PF1 = run_power_flow(PF_APP, verbose=verbosity_level>2)
     P_to_distribute = 0
     slacks = []
     for SG in PF1['SGs']:
         if 'slack' in SG.lower():
             P_to_distribute += PF1['SGs'][SG]['P']
             slacks.append(_find_object('*.ElmGenStat', SG))
-    if verbosity_level > 0: print(f'Total power to distribute from {len(slacks)} slack generators: {P_to_distribute:.2f} MW.')
-    
+    if verbosity_level > 0:
+        print(f'Total power to distribute from {len(slacks)} slack generators: {P_to_distribute:.2f} MW.')
+    # import pdb
+    # pdb.set_trace()
+
     # Find the loads that model the HVDC connections
     HVDCs = [ld for ld in  _get_objects('ElmLod') if ld.typ_id.loc_name == 'HVDCload']
     idx = np.argsort([hvdc.plini for hvdc in HVDCs])[::-1]
@@ -253,7 +330,7 @@ def _apply_configuration(config, verbosity_level):
         slack.outserv = True
         TO_TURN_ON.append(slack)
         
-    PF2 = run_power_flow(PF_APP)
+    PF2 = run_power_flow(PF_APP, verbose=verbosity_level>2)
     for SM in PF1['SMs']:
         try:
             if verbosity_level > 0 and \
@@ -294,15 +371,14 @@ def _compute_measures(fn, verbose=False):
             cnt += 1
             if verbose:
                 print('[{:2d}] {}: S = {:7.1f} MVA, H = {:5.2f} s, J = {:7.0f} kgm^2, polepairs = {}{}'.
-                      format(cnt, sm.loc_name, S[name], H[name], J[name], polepairs, ' [SLACK]' if sm.ip_ctrl else ''))
-            #num += H*S
-            #den += S
+                      format(cnt, name, S[name], H[name], J[name], polepairs, ' [SLACK]' if sm.ip_ctrl else ''))
         elif sm.ip_ctrl and verbose:
             print('{}: SM SLACK OUT OF SERVICE'.format(sm.loc_name))
     # static generators
     Psg, Qsg = 0, 0
     for sg in PF_APP.GetCalcRelevantObjects('*.ElmGenStat'):
         if not sg.outserv:
+            name = sg.loc_name
             Psg += sg.pgini
             Qsg += sg.qgini
         if sg.ip_ctrl and verbose:
