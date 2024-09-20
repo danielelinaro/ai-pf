@@ -9,10 +9,6 @@ import os
 import re
 import sys
 import numpy as np
-# from scipy.io import savemat
-# import matplotlib.pyplot as plt
-# import matplotlib
-# import seaborn as sns
 from tqdm import tqdm
 
 progname = os.path.basename(sys.argv[0])
@@ -275,20 +271,30 @@ if __name__ == '__main__':
             vars_idx_keys = list(vars_idx.keys())
             ks = [key for key in vars_idx_keys if bus_name in key]
             if len(ks) == 1:
-                idx.append(vars_idx[ks[0]]['ur'])
+                jdx = vars_idx[ks[0]]['ur']
+                if len(jdx) == 1:
+                    idx.append(jdx[0])
+                else:
+                    import ipdb
+                    ipdb.set_trace()
             else:
-                import pdb
-                pdb.set_trace()
+                import ipdb
+                ipdb.set_trace()
             keys.append('P')
         if use_Q_constraint:
             # imaginary part of voltage
             vars_idx_keys = list(vars_idx.keys())
             ks = [key for key in vars_idx_keys if bus_name in key]
             if len(ks) == 1:
-                idx.append(vars_idx[bus_name]['ui'])
+                jdx = vars_idx[ks[0]]['ui']
+                if len(jdx) == 1:
+                    idx.append(jdx[0])
+                else:
+                    import ipdb
+                    ipdb.set_trace()
             else:
-                import pdb
-                pdb.set_trace()
+                import ipdb
+                ipdb.set_trace()
             keys.append('Q')
         for key in keys:
             mean = PF_loads[load_name][key]
@@ -326,14 +332,15 @@ if __name__ == '__main__':
             TF[j,i,:N_state_vars] = tmp
             TF[j,i,N_state_vars:] = (C @ tmp - Jgy_inv @ v)
     TF[TF==0] = 1e-20 * (1+1j)
-    vars_idx = data['vars_idx'].item()
     var_names,idx = [],[]
     for k1,D in vars_idx.items():
-        for k2,v in D.items():
-            var_names.append(k1 + '.' + k2)
-            idx.append(v)
+        for k2,V in D.items():
+            k = k1 + '.' + k2
+            for v in V:
+                var_names.append(k)
+                idx.append(v)
     var_names = [var_names[i] for i in np.argsort(idx)]
-    
+
     if compute_additional_TFs:
         if ref_SM_name is None:
             print('Please select the synchronous machine to be used as a reference:')
@@ -352,8 +359,8 @@ if __name__ == '__main__':
         if len(full_var_names) == 1:
             full_var_name = full_var_names[0]
         else:
-            import pdb
-            pdb.set_trace()
+            import ipdb
+            ipdb.set_trace()
         ref_SM_idx = var_names.index(full_var_name)
         N_buses = len(bus_names)
         TF2 = np.zeros((TF.shape[0], TF.shape[1], N_buses), dtype=complex)
@@ -362,17 +369,18 @@ if __name__ == '__main__':
             # idx = var_names.index(name+'.ur'), var_names.index(name+'.ui')
             ### FIX THIS IN THE POWER FLOW LABELS
             name = bus_names[i].split('-')[-1].split('.')[0]
-            idx = var_names.index(bus_names[i]+'.ur'), var_names.index(bus_names[i]+'.ui')
-            ur,ui = PF['buses'][name]['ur'], PF['buses'][name]['ui']
-            if ur != 0:
-                coeffs = -ui/ur**2/(1+(ui/ur)**2), 1/(ur*(1+(ui/ur)**2))
-                TF2[:,:,i] = coeffs[0]*TF[:,:,idx[0]] + coeffs[1]*TF[:,:,idx[1]]
-                TF2[:,:,i] *= 1j*2*np.pi*F # Δω = jωΔθ
-                TF2[:,:,i] /= 2*np.pi*F0 # !!! scaling factor !!!
-                TF2[:,:,i] += TF[:,:,ref_SM_idx]
+            if name in PF['buses']:
+                idx = var_names.index(bus_names[i]+'.ur'), var_names.index(bus_names[i]+'.ui')
+                ur,ui = PF['buses'][name]['ur'], PF['buses'][name]['ui']
+                if ur != 0:
+                    coeffs = -ui/ur**2/(1+(ui/ur)**2), 1/(ur*(1+(ui/ur)**2))
+                    TF2[:,:,i] = coeffs[0]*TF[:,:,idx[0]] + coeffs[1]*TF[:,:,idx[1]]
+                    TF2[:,:,i] *= 1j*2*np.pi*F # Δω = jωΔθ
+                    TF2[:,:,i] /= 2*np.pi*F0 # !!! scaling factor !!!
+                    TF2[:,:,i] += TF[:,:,ref_SM_idx]
         var_names += [name+'.fe' for name in bus_names]
-        assert(len(var_names) == len(set(var_names)))
         TF = np.concatenate((TF,TF2), axis=-1)
+        assert(TF.shape[2] == len(var_names))
         
     Htot = data['inertia']
     Etot = data['energy']

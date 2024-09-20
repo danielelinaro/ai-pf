@@ -963,7 +963,7 @@ def parse_Jacobian_vars_file(filename):
                 var_name = ret[2].replace(':bus1','')
                 if obj_name not in vars_idx:
                     vars_idx[obj_name] = OrderedDict()
-                vars_idx[obj_name][var_name] = idx
+                add_to_list(vars_idx[obj_name], var_name, idx)
                 if 'state' in var_type:
                     add_to_list(state_vars, obj_name, var_name)
                 elif 'voltage' in var_type:
