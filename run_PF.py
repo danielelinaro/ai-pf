@@ -968,8 +968,6 @@ def run_AC_analysis():
     err = modal_analysis.Execute()
     print('done.')
 
-    _restore_network_state(verbosity_level>2)
-
     if err:
         print('ERROR!')
     else:
@@ -1053,6 +1051,9 @@ def run_AC_analysis():
                 'ref_SMs': ref_SMs}
         np.savez_compressed(outfile, **data)
         print('done.')
+
+    # revert all changes applied to the network
+    _restore_network_state(verbosity_level>2)
 
 
 ############################################################
