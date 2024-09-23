@@ -319,7 +319,8 @@ if __name__ == '__main__':
     N_inputs = c.size
     I = np.eye(N_state_vars)
     M = np.zeros((N_freq, N_state_vars, N_state_vars), dtype=complex)
-    TF = np.zeros((N_inputs, N_freq, N_state_vars+N_algebraic_vars), dtype=complex)
+    TF  = np.zeros((N_inputs, N_freq, N_state_vars+N_algebraic_vars), dtype=complex)
+    OUT = np.zeros((N_inputs, N_freq, N_state_vars+N_algebraic_vars), dtype=complex)
 
     for i in tqdm(range(N_freq), ascii=True, ncols=70):
         M[i,:,:] = np.linalg.inv(-A + 1j*2*np.pi*F[i]*I)
@@ -327,11 +328,16 @@ if __name__ == '__main__':
         PSD = np.sqrt((c/alpha)**2 / (1 + (2*np.pi*F[i]/alpha)**2))
         for j,psd in enumerate(PSD):
             v = np.zeros(N_algebraic_vars, dtype=float)
-            v[idx[j]] = psd
+            v[idx[j]] = 1
             tmp = MxB @ v
             TF[j,i,:N_state_vars] = tmp
             TF[j,i,N_state_vars:] = (C @ tmp - Jgy_inv @ v)
+            v[idx[j]] = psd
+            tmp = MxB @ v
+            OUT[j,i,:N_state_vars] = tmp
+            OUT[j,i,N_state_vars:] = (C @ tmp - Jgy_inv @ v)
     TF[TF==0] = 1e-20 * (1+1j)
+    OUT[OUT==0] = 1e-20 * (1+1j)
     var_names,idx = [],[]
     for k1,D in vars_idx.items():
         for k2,V in D.items():
@@ -363,34 +369,46 @@ if __name__ == '__main__':
             ipdb.set_trace()
         ref_SM_idx = var_names.index(full_var_name)
         N_buses = len(bus_names)
-        TF2 = np.zeros((TF.shape[0], TF.shape[1], N_buses), dtype=complex)
+        TF2  = np.zeros((TF.shape[0],  TF.shape[1],  N_buses), dtype=complex)
+        OUT2 = np.zeros((OUT.shape[0], OUT.shape[1], N_buses), dtype=complex)
+
+        def do_calc(X,coeffs,F,F0,ref):
+            tmp = coeffs[0]*X[0] + coeffs[1]*X[1]
+            tmp *= 1j*2*np.pi*F # Δω = jωΔθ
+            tmp /= 2*np.pi*F0 # !!! scaling factor !!!
+            tmp += ref
+            return tmp
+
+        OUT_ref = np.squeeze(OUT[:,:,ref_SM_idx])
         for i in tqdm(range(N_buses), ascii=True, ncols=70):
             # name = bus_names[i]
             # idx = var_names.index(name+'.ur'), var_names.index(name+'.ui')
             ### FIX THIS IN THE POWER FLOW LABELS
             name = bus_names[i].split('-')[-1].split('.')[0]
             if name in PF['buses']:
-                idx = var_names.index(bus_names[i]+'.ur'), var_names.index(bus_names[i]+'.ui')
+                idx = np.array([var_names.index(bus_names[i]+'.ur'),
+                                var_names.index(bus_names[i]+'.ui')])
                 ur,ui = PF['buses'][name]['ur'], PF['buses'][name]['ui']
                 if ur != 0:
                     coeffs = -ui/ur**2/(1+(ui/ur)**2), 1/(ur*(1+(ui/ur)**2))
-                    TF2[:,:,i] = coeffs[0]*TF[:,:,idx[0]] + coeffs[1]*TF[:,:,idx[1]]
-                    TF2[:,:,i] *= 1j*2*np.pi*F # Δω = jωΔθ
-                    TF2[:,:,i] /= 2*np.pi*F0 # !!! scaling factor !!!
-                    TF2[:,:,i] += TF[:,:,ref_SM_idx]
+                    X = np.squeeze(TF[:,:,idx]).T
+                    TF2[:,:,i] = do_calc(X, coeffs, F, F0, OUT_ref)
+                    X = np.squeeze(OUT[:,:,idx]).T
+                    OUT2[:,:,i] = do_calc(X, coeffs, F, F0, OUT_ref)
+
         var_names += [name+'.fe' for name in bus_names]
-        TF = np.concatenate((TF,TF2), axis=-1)
-        assert(TF.shape[2] == len(var_names))
+        TF  = np.concatenate((TF,TF2), axis=-1)
+        OUT = np.concatenate((OUT,OUT2), axis=-1)
+        assert(len(var_names) == TF.shape[2])
         
     Htot = data['inertia']
     Etot = data['energy']
     Mtot = data['momentum']
-    out = {'A': A, 'F': F, 'TF': TF, 'var_names': var_names, 'SM_names': SM_names,
+    out = {'A': A, 'F': F, 'TF': TF, 'OUT': OUT, 'var_names': var_names, 'SM_names': SM_names,
            'static_gen_names': static_gen_names, 'bus_names': bus_names,
            'Htot': Htot, 'Etot': Etot, 'Mtot': Mtot, 'H': H, 'S': S, 'P': P, 'Q': Q,
            'PF': data['PF_without_slack'], 'bus_equiv_terms': data['bus_equiv_terms']}
     np.savez_compressed(os.path.join(outdir, outfile), **out)
 
     if save_mat:
-        save_to_mat(os.path.join(outdir, os.path.splitext(outfile)[0] + '.mat'),
-                    data_dict=out)
+        save_to_mat(os.path.join(outdir, os.path.splitext(outfile)[0]+'.mat'), data_dict=out)
