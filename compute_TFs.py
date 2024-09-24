@@ -85,7 +85,7 @@ if __name__ == '__main__':
             dP = list(map(float, sys.argv[i].split(',')))
         elif arg == '--dQ':
             i += 1
-            dP = list(map(float, sys.argv[i].split(',')))
+            dQ = list(map(float, sys.argv[i].split(',')))
         elif arg == '--sigmaP':
             i += 1
             sigmaP = list(map(float, sys.argv[i].split(',')))
@@ -251,7 +251,7 @@ if __name__ == '__main__':
 
     PF_loads = data['PF_without_slack'].item()['loads']
     idx = []
-    c,alpha = [], []
+    mu,c,alpha = [],[],[]
     for i,load_name in enumerate(load_names):
         keys = []
         bus_name = load_buses[load_name]
@@ -308,11 +308,12 @@ if __name__ == '__main__':
                     stddev = dQ[i] * abs(mean)
                 else:
                     stddev = sigmaQ[i]
+            mu.append(mean)
             c.append(stddev*np.sqrt(2/tau))
             alpha.append(1/tau)
 
     idx = np.array(idx) - N_state_vars
-    c,alpha = np.array(c), np.array(alpha)
+    mu,c,alpha = np.array(mu),np.array(c),np.array(alpha)
     B = -Jfy @ Jgy_inv
     C = -Jgy_inv @ Jgx
     
@@ -405,9 +406,13 @@ if __name__ == '__main__':
     Etot = data['energy']
     Mtot = data['momentum']
     out = {'A': A, 'F': F, 'TF': TF, 'OUT': OUT, 'var_names': var_names, 'SM_names': SM_names,
-           'static_gen_names': static_gen_names, 'bus_names': bus_names,
+           'static_gen_names': static_gen_names, 'bus_names': bus_names, 'load_names': load_names,
            'Htot': Htot, 'Etot': Etot, 'Mtot': Mtot, 'H': H, 'S': S, 'P': P, 'Q': Q,
-           'PF': data['PF_without_slack'], 'bus_equiv_terms': data['bus_equiv_terms']}
+           'PF': data['PF_without_slack'], 'bus_equiv_terms': data['bus_equiv_terms'],
+           'mu': mu, 'c': c, 'alpha': alpha, 'use_P_constraint': use_P_constraint,
+           'use_Q_constraint': use_Q_constraint, 'dP': dP, 'dQ': dQ, 'sigmaP': sigmaP,
+           'sigmaQ': sigmaQ, 'ref_SM_name': ref_SM_name, 'data_file': data_file,
+           'with_additional_TFs': compute_additional_TFs}
     np.savez_compressed(os.path.join(outdir, outfile), **out)
 
     if save_mat:
