@@ -16,7 +16,7 @@ progname = os.path.basename(sys.argv[0])
 def usage(exit_code=None):
     print(f'usage: {progname} [-h | --help] [-m | --fmin <value>] [-M | --fmax <value>]')
     prefix = '       ' + ' ' * (len(progname)+1)
-    print(prefix + '[-N | --n-steps <value>] [--save-mat] [--F0 <value>]')
+    print(prefix + '[-N | --n-steps <value>] [--save-mat] [--F0 <value>] [--use-numpy-inv]')
     print(prefix + '[-o | --outfile <value>] [-f | --force] [--tau <value>]')
     print(prefix + '[--ref-sm <name>] [--no-add-TF] <--P | --Q | --PQ>')
     print(prefix + '<--dP | --sigmaP value1<,value2,...>> <--dQ | --sigmaQ value1<,value2,...>>')
@@ -52,6 +52,7 @@ if __name__ == '__main__':
     F0 = 50.
     ref_SM_name = None
     compute_additional_TFs = True
+    use_numpy_inv = False
 
     i = 1
     N_args = len(sys.argv)
@@ -108,6 +109,8 @@ if __name__ == '__main__':
             save_mat = True
         elif arg in ('-f', '--force'):
             force = True
+        elif arg == '--use-numpy-inv':
+            use_numpy_inv = True
         elif arg[0] == '-':
             print(f'{progname}: unknown option `{arg}`.')
             sys.exit(1)
@@ -178,6 +181,11 @@ if __name__ == '__main__':
         print(f'{progname}: you must specify the name of at least one load where the signal is injected.')
         sys.exit(1)
 
+    if use_numpy_inv:
+        from numpy.linalg import inv
+    else:
+        from scipy.linalg import inv
+
     N_freq = int(fmax - fmin) * steps_per_decade + 1
     F = np.logspace(fmin, fmax, N_freq)    
 
@@ -210,7 +218,7 @@ if __name__ == '__main__':
     Jfy = J[:N_state_vars, N_state_vars:]
     Jgx = J[N_state_vars:, :N_state_vars]
     Jgy = J[N_state_vars:, N_state_vars:]
-    Jgy_inv = np.linalg.inv(Jgy)
+    Jgy_inv = inv(Jgy)
     Atmp = Jfx - Jfy @ Jgy_inv @ Jgx
     assert np.all(np.abs(A-Atmp) < 1e-8)
 
@@ -324,7 +332,7 @@ if __name__ == '__main__':
     OUT = np.zeros((N_inputs, N_freq, N_state_vars+N_algebraic_vars), dtype=complex)
 
     for i in tqdm(range(N_freq), ascii=True, ncols=70):
-        M[i,:,:] = np.linalg.inv(-A + 1j*2*np.pi*F[i]*I)
+        M[i,:,:] = inv(-A + 1j*2*np.pi*F[i]*I)
         MxB = M[i,:,:] @ B
         PSD = np.sqrt((c/alpha)**2 / (1 + (2*np.pi*F[i]/alpha)**2))
         for j,psd in enumerate(PSD):
