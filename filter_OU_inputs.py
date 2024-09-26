@@ -10,9 +10,12 @@ import re
 import sys
 import json
 import numpy as np
+from numpy.random import RandomState, SeedSequence, MT19937
 from scipy.signal import lti, lsim, welch
 from pfcommon import OU_2
 import tables
+from tqdm import tqdm
+iter_fun = lambda it: tqdm(it, ascii=True, ncols=70)
 
 import matplotlib
 import matplotlib.pyplot as plt
@@ -83,7 +86,8 @@ def run_welch(x, dt, window, onesided):
 def usage(exit_code=None):
     print(f'usage: {progname} [-h | --help] [--data-file <fname>] [--tau <value>]')
     prefix = '       ' + ' ' * (len(progname)+1)
-    print(prefix + '[-o | --outfile <value>] [-f | --force] [--dB <10|20>] config_file')
+    print(prefix + '[-o | --outfile <value>] [-s | --suffix <value>]')
+    print(prefix + '[-f | --force] [--dB <10|20>] [--tend <value>] config_file')
     if exit_code is not None:
         sys.exit(exit_code)
 
@@ -98,6 +102,8 @@ if __name__ == '__main__':
 
     force = False
     outdir, outfile = '', None
+    suffix = None
+    tend = None
     dB = 10
 
     i = 1
@@ -112,6 +118,17 @@ if __name__ == '__main__':
         elif arg in ('-o','--outfile'):
             i += 1
             outfile = sys.argv[i]
+        elif arg in ('-s','--suffix'):
+            i += 1
+            suffix = sys.argv[i]
+            if suffix[0] == '_':
+                suffix = suffix[1:]
+        elif arg == '--tend':
+            i += 1
+            tend = float(sys.argv[i])
+            if tend <= 0:
+                print('tend must be > 0')
+                sys.exit(0)
         elif arg in ('-f', '--force'):
             force = True
         elif arg.lower() == '--db':
@@ -135,6 +152,10 @@ if __name__ == '__main__':
     else:
         print(f'{progname}: arguments after configuration file name are not allowed')
         sys.exit(1)
+
+    if outfile is not None and suffix is not None:
+        print('Output file name and suffix cannot be specified at the same time.')
+        sys.exit(1)
         
     if not os.path.isfile(config_file):
         print(f'{progname}: {config_file}: no such file.')
@@ -152,7 +173,11 @@ if __name__ == '__main__':
         outdir = os.path.dirname(data_file)
         if outdir == '':
             outdir = '.'
-        outfile = os.path.splitext(os.path.basename(data_file))[0] + '_noisy_traces.h5'
+        outfile = os.path.splitext(os.path.basename(data_file))[0]
+        if suffix is None:
+            outfile += '_noisy_traces.h5'
+        else:
+            outfile += '_' + suffix + '.h5'
     if os.path.isfile(os.path.join(outdir, outfile)) and not force:
         print(f'{progname}: {os.path.join(outdir, outfile)}: file exists, use -f to overwrite.')
         sys.exit(1)
@@ -190,13 +215,22 @@ if __name__ == '__main__':
         raise NotImplementedError('not implemented yet')
 
     mu,c,alpha = data['mu'],data['c'],data['alpha']
-    tend,srate = config['tend'],config['sampling_rate']
+    if tend is None:
+        tend = config['tend']
+    srate = config['sampling_rate']
     dt = 1/srate
     time = np.r_[0 : tend+dt/2 : dt]
     N_samples = time.size
     U = np.zeros((N_loads, N_samples))
-    for i in range(N_loads):
-        U[i,:] = OU_2(dt, alpha[i], mu[i], c[i], N_samples)
+    if 'seed' in config:
+        seed = config['seed']
+    else:
+        with open('/dev/urandom', 'rb') as fid:
+            seed = int.from_bytes(fid.read(4), 'little') % 10000000
+    rs = RandomState(MT19937(SeedSequence(seed)))
+    print('Building OU stimuli...')
+    for i in iter_fun(range(N_loads)):
+        U[i,:] = OU_2(dt, alpha[i], mu[i], c[i], N_samples, random_state=rs)
     
     TFs = data['TF'][:,:,vars_idx]
     OUT_PSDs = data['OUT'][:,:,vars_idx]
@@ -213,12 +247,13 @@ if __name__ == '__main__':
     rows,cols = 2*N_loads,N_vars
     fig,ax = plt.subplots(rows, cols, figsize=(cols*width, rows*height),
                           squeeze=False, sharex=True)
+    print('Filtering inputs...')
     for i in range(N_loads):
         P_U_theor = (c[i]/alpha[i])**2 / (1 + (2*np.pi*F/alpha[i])**2)
         abs_U_theor = np.sqrt(P_U_theor)
         P_U_theor_db = dB*np.log10(P_U_theor)
 
-        for j in range(N_vars):
+        for j in iter_fun(range(N_vars)):
             tf = TFs[i,:,j]
             SER,poles,rmserr,fit = run_vf(tf, F, N_poles)
             S = lti(SER['A'], SER['B'], SER['C'], SER['D'])
@@ -271,7 +306,11 @@ if __name__ == '__main__':
     S = [SM_info[k]['S'] for k in PF['SMs'] if k in SM_info]
     generator_IDs = [k for k in PF['SMs'] if k not in ('Ptot','Qtot')]
     N_generators = len(generator_IDs)
-    
+
+    from time import time as TIME
+    sys.stdout.write('Saving data to {}... '.format(os.path.join(outdir,outfile)))
+    sys.stdout.flush()
+    t0 = TIME()
     compression_filter = tables.Filters(complib='zlib', complevel=5)
     fid = tables.open_file(os.path.join(outdir, outfile), 'w', filters=compression_filter)
 
@@ -286,6 +325,7 @@ if __name__ == '__main__':
         c              = tables.Float64Col(shape=(N_loads,))
         inertia        = tables.Float64Col(shape=(N_generators,))
         S              = tables.Float64Col(shape=(N_generators,))
+        seed           = tables.Int64Col()
         generator_IDs  = tables.StringCol(128, shape=(N_generators,))
         var_names_file = tables.StringCol(128, shape=(1,))
         vars_to_sim    = tables.StringCol(var_len, shape=(N_vars_to_sim,))
@@ -300,6 +340,7 @@ if __name__ == '__main__':
     params['tend']           = tend
     params['inertia']        = inertia
     params['S']              = S
+    params['seed']           = seed
     params['generator_IDs']  = generator_IDs
     params['var_names_file'] = [var_names_file] if var_names_file is None else ['N/A']
     params['vars_to_sim']    = vars_to_sim
@@ -315,4 +356,6 @@ if __name__ == '__main__':
 
 
     fid.close()
-    
+
+    t1 = TIME()
+    print(f'done in {t1-t0:.1f} sec.')

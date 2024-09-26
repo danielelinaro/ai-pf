@@ -1,5 +1,6 @@
 #!/bin/bash
 
+export OPENBLAS_NUM_THREADS=4
 N=100
 refSM="CODCTI0201GGR1____GEN_____"
 dP=0.1

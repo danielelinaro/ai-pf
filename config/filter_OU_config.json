@@ -3,7 +3,7 @@
 	"EqX_BNFC_I0601TRR_____LOAD____"
     ],
     "var_names": "var_names_69630.json",
-    "tend": 3600,
-    "sampling_rate": 400,
+    "tend": 6000,
+    "sampling_rate": 200,
     "block_dur": 60
 }
