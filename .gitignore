@@ -1,3 +1,5 @@
+*.key
+geography
 AC_configs
 .DS_Store
 Notebooks/geography
