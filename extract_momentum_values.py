@@ -25,20 +25,26 @@ if __name__ == '__main__':
     E = -1 + np.zeros(n_dirs)
     M = -1 + np.zeros(n_dirs)
     fname = 'V2020_Rete_Sardegna_2021_06_03cr_AC_TF_-6.0_2.0_100.npz'
+    fname = 'V2020_Rete_Sardegna_2021_06_03cr_AC.npz'
     
     for i,d in enumerate(data_dirs):
         data_file = os.path.join(d, fname)
         if not os.path.isfile(data_file):
             print(f'Directory {os.path.basename(d)} does not contain file {fname}.')
             continue
-        data = np.load(data_file)
-        S = data['S'] * 1e6 # [MW]
-        num = data['H'] @ S
-        den = S.sum()
+        data = np.load(data_file, allow_pickle=True)
+        if 'TF' in fname:
+            Si = data['S'] * 1e6
+            Hi = data['H']
+        else:
+            S_dict = data['S'].item()
+            H_dict = data['H'].item()
+            Si = np.array([S_dict[k] for k in S_dict]) * 1e6
+            Hi = np.array([H_dict[k] for k in S_dict])
+        num = Hi @ Si
+        den = Si.sum()
         H[i] = num/den       # [s]
         E[i] = num*1e-9      # [GW s]
         M[i] = 2*num*1e-9/50 # [GW s2]
 
     np.savez_compressed('HEM.npz', H=H, E=E, M=M)
-        
-        

@@ -2,7 +2,7 @@
     "load_names": [
 	"EqX_BNFC_I0601TRR_____LOAD____"
     ],
-    "var_names": "var_names_69630.json",
+    "var_names": "var_names_41920.json",
     "tend": 6000,
     "sampling_rate": 200,
     "block_dur": 60
