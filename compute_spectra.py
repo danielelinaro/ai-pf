@@ -328,7 +328,10 @@ if __name__ == '__main__':
     N_inputs = c.size
     I = np.eye(N_state_vars)
     M = np.zeros((N_freq, N_state_vars, N_state_vars), dtype=complex)
+    # the transfer functions are complex numbers
     TF  = np.zeros((N_inputs, N_freq, N_state_vars+N_algebraic_vars), dtype=complex)
+    # the absolute value of the spectra of the outputs are real numbers:
+    # we will take the abs at the end of the function
     OUT = np.zeros((N_inputs, N_freq, N_state_vars+N_algebraic_vars), dtype=complex)
 
     for i in tqdm(range(N_freq), ascii=True, ncols=70):
@@ -340,11 +343,11 @@ if __name__ == '__main__':
             v[idx[j]] = 1
             tmp = MxB @ v
             TF[j,i,:N_state_vars] = tmp
-            TF[j,i,N_state_vars:] = (C @ tmp - Jgy_inv @ v)
+            TF[j,i,N_state_vars:] = C @ tmp - Jgy_inv @ v
             v[idx[j]] = psd
             tmp = MxB @ v
             OUT[j,i,:N_state_vars] = tmp
-            OUT[j,i,N_state_vars:] = (C @ tmp - Jgy_inv @ v)
+            OUT[j,i,N_state_vars:] = C @ tmp - Jgy_inv @ v
     TF[TF==0] = 1e-20 * (1+1j)
     OUT[OUT==0] = 1e-20 * (1+1j)
     var_names,idx = [],[]
@@ -378,17 +381,19 @@ if __name__ == '__main__':
             ipdb.set_trace()
         ref_SM_idx = var_names.index(full_var_name)
         N_buses = len(bus_names)
-        TF2  = np.zeros((TF.shape[0],  TF.shape[1],  N_buses), dtype=complex)
+        TF2  = np.zeros(( TF.shape[0],  TF.shape[1], N_buses), dtype=complex)
         OUT2 = np.zeros((OUT.shape[0], OUT.shape[1], N_buses), dtype=complex)
 
         def do_calc(X,coeffs,F,F0,ref):
-            tmp = coeffs[0]*X[0] + coeffs[1]*X[1]
-            tmp *= 1j*2*np.pi*F # Δω = jωΔθ
-            tmp /= 2*np.pi*F0 # !!! scaling factor !!!
-            tmp += ref
-            return tmp
+            ret = np.zeros(X.shape[:2], dtype=complex)
+            N_TF = X.shape[0]
+            for i in range(N_TF):
+                ret[i,:] = coeffs[0]*X[i,:,0] + coeffs[1]*X[i,:,1]
+                ret[i,:] *= 1j*2*np.pi*F # Δω = jωΔθ
+                ret[i,:] /= 2*np.pi*F0 # !!! scaling factor !!!
+                ret[i,:] += ref[i,:]
+            return ret
 
-        OUT_ref = np.squeeze(OUT[:,:,ref_SM_idx])
         for i in tqdm(range(N_buses), ascii=True, ncols=70):
             # name = bus_names[i]
             # idx = var_names.index(name+'.ur'), var_names.index(name+'.ui')
@@ -400,10 +405,9 @@ if __name__ == '__main__':
                 ur,ui = PF['buses'][name]['ur'], PF['buses'][name]['ui']
                 if ur != 0:
                     coeffs = -ui/ur**2/(1+(ui/ur)**2), 1/(ur*(1+(ui/ur)**2))
-                    X = np.squeeze(TF[:,:,idx]).T
-                    TF2[:,:,i] = do_calc(X, coeffs, F, F0, OUT_ref)
-                    X = np.squeeze(OUT[:,:,idx]).T
-                    OUT2[:,:,i] = do_calc(X, coeffs, F, F0, OUT_ref)
+                    ##### is it TF or OUT in the following line?!? #####
+                    TF2[:,:,i]  = do_calc( TF[:,:,idx], coeffs, F, F0,  TF[:,:,ref_SM_idx])
+                    OUT2[:,:,i] = do_calc(OUT[:,:,idx], coeffs, F, F0, OUT[:,:,ref_SM_idx])
 
         var_names += [name+'.fe' for name in bus_names]
         TF  = np.concatenate((TF,TF2), axis=-1)
@@ -413,7 +417,7 @@ if __name__ == '__main__':
     Htot = data['inertia']
     Etot = data['energy']
     Mtot = data['momentum']
-    out = {'A': A, 'F': F, 'TF': TF, 'OUT': OUT, 'var_names': var_names, 'SM_names': SM_names,
+    out = {'A': A, 'F': F, 'TF': TF, 'OUT': np.abs(OUT), 'var_names': var_names, 'SM_names': SM_names,
            'static_gen_names': static_gen_names, 'bus_names': bus_names, 'load_names': load_names,
            'Htot': Htot, 'Etot': Etot, 'Mtot': Mtot, 'H': H, 'S': S, 'P': P, 'Q': Q,
            'PF': data['PF_without_slack'], 'bus_equiv_terms': data['bus_equiv_terms'],
