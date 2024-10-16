@@ -50,7 +50,7 @@ if __name__ == '__main__':
     # time constant of the OU process
     tau = 20e-3
     F0 = 50.
-    ref_SM_name = None
+    ref_SM_name = 'CODCTI0201GGR1____GEN_____'
     compute_additional_TFs = True
     use_numpy_inv = False
 
@@ -71,7 +71,12 @@ if __name__ == '__main__':
             steps_per_decade = int(sys.argv[i])
         elif arg in ('-L', '--loads'):
             i += 1
-            load_names = sys.argv[i].split(',')
+            v = sys.argv[i]
+            if os.path.isfile(v):
+                with open(v,'r') as fid:
+                    load_names = [l.strip() for l in fid]
+            else:
+                load_names = v.split(',')
         elif arg == '--no-add-TF':
             compute_additional_TFs = False
         elif arg == '--P':
@@ -260,49 +265,37 @@ if __name__ == '__main__':
     PF_loads = data['PF_without_slack'].item()['loads']
     idx = []
     mu,c,alpha = [],[],[]
+    full_element_names = list(vars_idx.keys())
+    element_names = list(map(lambda s: s.split('.')[0].split('-')[-1], full_element_names))
+    bus_equiv_terms = data['bus_equiv_terms'].item()
     for i,load_name in enumerate(load_names):
-        keys = []
+        found = False
         bus_name = load_buses[load_name]
-        if bus_name not in vars_idx:
-            # we have to look through the equivalent terms of bus_name
-            bus_equiv_terms = data['bus_equiv_terms'].item()
-            for equiv_term_name in bus_equiv_terms[bus_name]:
-                if equiv_term_name in vars_idx:
-                    print('Load {} is connected to bus {}, which is not among the '.
-                          format(load_name, bus_name) + 
-                          'buses whose ur and ui variables are in the Jacobian, but {} is.'.
-                          format(equiv_term_name))
-                    bus_name = equiv_term_name
+        if bus_name in element_names:
+            full_bus_name = full_element_names[element_names.index(bus_name)]
+            found = True
+            flag = ''
+        else:
+            for equiv_term in bus_equiv_terms[bus_name]:
+                if equiv_term in element_names:
+                    full_bus_name = full_element_names[element_names.index(equiv_term)]
+                    found = True
+                    flag = '*'
                     break
+        if not found:
+            print(f"Variable index for '{bus_name}' not found.")
+            continue
+        print(f'[{i+1:2d}] {bus_name} -> {full_bus_name} {flag}')
+        keys = []
         if use_P_constraint:
             # real part of voltage
-            vars_idx_keys = list(vars_idx.keys())
-            ks = [key for key in vars_idx_keys if bus_name in key]
-            if len(ks) == 1:
-                jdx = vars_idx[ks[0]]['ur']
-                if len(jdx) == 1:
-                    idx.append(jdx[0])
-                else:
-                    import ipdb
-                    ipdb.set_trace()
-            else:
-                import ipdb
-                ipdb.set_trace()
+            assert len(vars_idx[full_bus_name]['ur']) == 1
+            idx.append(vars_idx[full_bus_name]['ur'][0])
             keys.append('P')
         if use_Q_constraint:
             # imaginary part of voltage
-            vars_idx_keys = list(vars_idx.keys())
-            ks = [key for key in vars_idx_keys if bus_name in key]
-            if len(ks) == 1:
-                jdx = vars_idx[ks[0]]['ui']
-                if len(jdx) == 1:
-                    idx.append(jdx[0])
-                else:
-                    import ipdb
-                    ipdb.set_trace()
-            else:
-                import ipdb
-                ipdb.set_trace()
+            assert len(vars_idx[full_bus_name]['ui']) == 1
+            idx.append(vars_idx[full_bus_name]['ui'][0])
             keys.append('Q')
         for key in keys:
             mean = PF_loads[load_name][key]
