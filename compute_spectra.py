@@ -406,7 +406,10 @@ if __name__ == '__main__':
         TF  = np.concatenate((TF,TF2), axis=-1)
         OUT = np.concatenate((OUT,OUT2), axis=-1)
         assert(len(var_names) == TF.shape[2])
-        
+
+    import ipdb
+    ipdb.set_trace()
+
     Htot = data['inertia']
     Etot = data['energy']
     Mtot = data['momentum']
