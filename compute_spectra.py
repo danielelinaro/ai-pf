@@ -20,7 +20,8 @@ def usage(exit_code=None):
     print(prefix + '[-o | --outfile <value>] [-f | --force] [--tau <value>]')
     print(prefix + '[--ref-sm <name>] [--no-add-TF] <--P | --Q | --PQ>')
     print(prefix + '<--dP | --sigmaP value1<,value2,...>> <--dQ | --sigmaQ value1<,value2,...>>')
-    print(prefix + '<-L | --loads load1<,load2,...>> file')
+    print(prefix + '<-L | --loads load1<,load2,...> | filename>')
+    print(prefix + '<-V | --vars-to-save var1<,var2,...> | filename> AC_data_file')
     if exit_code is not None:
         sys.exit(exit_code)
 
@@ -44,6 +45,7 @@ if __name__ == '__main__':
     save_mat = False
     outdir, outfile = '', None
     load_names = None
+    vars_to_save = None
     use_P_constraint, use_Q_constraint = False, False
     dP,dQ = [],[]
     sigmaP,sigmaQ = [],[]
@@ -77,6 +79,17 @@ if __name__ == '__main__':
                     load_names = [l.strip() for l in fid]
             else:
                 load_names = v.split(',')
+        elif arg in ('-V', '--vars-to-save'):
+            i += 1
+            v = sys.argv[i]
+            if os.path.isfile(v):
+                if os.path.splitext(v)[1] == '.json':
+                    vars_to_save = json.load(open(v,'r'))['var_names']
+                else:
+                    with open(v,'r') as fid:
+                        vars_to_save = [l.strip() for l in fid]
+            else:
+                vars_to_save = v.split(',')
         elif arg == '--no-add-TF':
             compute_additional_TFs = False
         elif arg == '--P':
@@ -366,12 +379,7 @@ if __name__ == '__main__':
                     break
             ref_SM_name = SM_names[idx-1]
         print(f'Will use "{ref_SM_name}" as reference.')
-        full_var_names = [name for name in var_names if ref_SM_name in name and '.speed' in name]
-        if len(full_var_names) == 1:
-            full_var_name = full_var_names[0]
-        else:
-            import ipdb
-            ipdb.set_trace()
+        full_var_name = full_element_names[element_names.index(ref_SM_name)] + '.speed'
         ref_SM_idx = var_names.index(full_var_name)
         N_buses = len(bus_names)
         TF2  = np.zeros(( TF.shape[0],  TF.shape[1], N_buses), dtype=complex)
@@ -407,8 +415,15 @@ if __name__ == '__main__':
         OUT = np.concatenate((OUT,OUT2), axis=-1)
         assert(len(var_names) == TF.shape[2])
 
-    import ipdb
-    ipdb.set_trace()
+    if vars_to_save is not None:
+        idx = []
+        for var_to_save in vars_to_save:
+            idx.append(np.where([re.search(var_to_save, var_name) is not None for var_name in var_names])[0])
+        idx = np.sort(np.concatenate(idx))
+        print(f'Will save only {len(idx)} out of {len(var_names)} variables.')
+        var_names = [var_names[i] for i in idx]
+        TF = TF[:,:,idx]
+        OUT = OUT[:,:,idx]
 
     Htot = data['inertia']
     Etot = data['energy']
