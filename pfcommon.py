@@ -14,7 +14,7 @@ __all__ = ['BaseParameters', 'AutomaticVoltageRegulator', 'TurbineGovernor',
            'compute_generator_inertias', 'sort_objects_by_name', 'get_objects',
            'make_full_object_name', 'build_network_graph', 'Node', 'Edge',
            'parse_sparse_matrix_file', 'parse_Amat_vars_file', 'parse_Jacobian_vars_file',
-           'combine_output_spectra']
+           'combine_output_spectra','combine_output_spectra_old']
 
 
 class BaseParameters (tables.IsDescription):
@@ -975,8 +975,55 @@ def parse_Jacobian_vars_file(filename):
     return vars_idx,state_vars,voltages,currents,signals
 
 
-def combine_output_spectra(output_spectra, var_name, device_names, network_var_names,
-                           ref_SM_name, freq, ref_freq, PF, bus_equiv_terms, dB=20):
+def combine_output_spectra(output_spectra, input_names, output_names, load_names,
+                           var_names, var_types, freq, PF, bus_equiv_terms,
+                           ref_freq=50.0, ref_SM_name=None):
+    """
+    Arguments:
+     output_spectra: an ndarray with dimensions MxNxL, where M is the number of frequency
+                     samples, N is the number of inputs and L is the number of outputs.
+                     The inputs are the stochastic loads and the outputs are the
+                     variables of the network
+        input_names: the names of the inputs that should be used in the calculation of the
+                     combined spectra
+       output_names: the names of the outputs for which the combined spectra should be
+                     computed
+         load_names: the N load names for which individual TFs are available
+          var_names: the L variable names for which individual TFs are available
+          var_types: a list of L variable types (m:ur, s:xspeed, ...)
+               freq: the frequencies at which the TFs are sampled
+                 PF: the data with the power-flow solution of the power network
+    bus_equiv_terms: ...
+           ref_freq: the frequency at which the system operates (i.e., 50 or 60 Hz)
+        ref_SM_name: the name of the slack synchronous machine
+
+    Returns:
+      an ndarray with dimensions (# outputs, # freq. samples), where each row is the
+      combined spectrum for a given output
+    """
+    add_spectra = lambda sp: np.sqrt(np.sum(np.abs(sp)**2, axis=1))
+
+    # make sure that things work also if load_names and var_names are NumPy arrays
+    load_names_L = list(load_names)
+    var_names_L = list(var_names)
+    N_outputs = len(output_names)
+    N_samples = output_spectra.shape[0]
+    assert freq.size == N_samples
+    spectra = np.zeros((N_outputs,N_samples))
+    inputs_idx = [load_names_L.index(input_name) for input_name in input_names]
+    for i in range(N_outputs):
+        if var_types[i] in ('m:ur','m:ui','s:xspeed'):
+            output_idx = var_names_L.index(output_names[i])
+            spectra[i,:] = add_spectra(output_spectra[:,inputs_idx,output_idx])
+        elif var_name == 'U':
+            raise NotImplementedError('Not implemented yet')
+        elif var_name in ('m:fe', 'theta', 'omega'):
+            raise NotImplementedError('Not implemented yet')
+    return spectra
+
+
+def combine_output_spectra_old(output_spectra, var_name, device_names, network_var_names,
+                               ref_SM_name, freq, ref_freq, PF, bus_equiv_terms, dB=20):
 
     def find_var_name(all_names, obj_name, var_name):
         full_names = [name for name in all_names if re.search(obj_name+'\.', name) is not None \

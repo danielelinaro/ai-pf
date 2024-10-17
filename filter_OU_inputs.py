@@ -12,7 +12,7 @@ import json
 import numpy as np
 from numpy.random import RandomState, SeedSequence, MT19937
 from scipy.signal import lti, lsim, welch
-from pfcommon import OU_2
+from pfcommon import OU_2, combine_output_spectra
 import tables
 from tqdm import tqdm
 iter_fun = lambda it: tqdm(it, ascii=True, ncols=70)
@@ -34,8 +34,7 @@ import seaborn as sns
 
 progname = os.path.basename(sys.argv[0])
 
-
-def run_vf(X, F, n_poles, n_iter=4, weights=None, do_plot=False):
+def run_vf(X, F, n_poles, n_iter=4, weights=None, poles_guess=None, do_plot=False):
     """
     Runs the vector fitting algorithm for a given number of poles
     """
@@ -57,7 +56,10 @@ def run_vf(X, F, n_poles, n_iter=4, weights=None, do_plot=False):
     opts['spy2'] = False     # do not plot the results
 
     # initial guess for pole positions
-    poles = -2*np.pi*np.logspace(F0, F1, n_poles, dtype=np.complex128)
+    if poles_guess is not None:
+        poles = poles_guess
+    else:
+        poles = -2*np.pi*np.logspace(F0, F1, n_poles, dtype=np.complex128)
     for i in range(n_iter):
         if i == n_iter-1:
             opts['skip_res'] = False
@@ -211,88 +213,141 @@ if __name__ == '__main__':
 
     load_names = config['load_names']
     N_loads = len(load_names)
-    if N_loads > 1:
-        raise NotImplementedError('not implemented yet')
-
-    mu,c,alpha = data['mu'],data['c'],data['alpha']
+    all_load_names = data['load_names'].tolist()
+    loads_idx = np.array([all_load_names.index(load_name) for load_name in load_names])
+    mu = data['mu'][loads_idx]
+    c = data['c'][loads_idx]
+    alpha = data['alpha'][loads_idx]
     if tend is None:
         tend = config['tend']
     srate = config['sampling_rate']
     dt = 1/srate
     time = np.r_[0 : tend+dt/2 : dt]
     N_samples = time.size
-    U = np.zeros((N_loads, N_samples))
     if 'seed' in config:
         seed = config['seed']
     else:
         with open('/dev/urandom', 'rb') as fid:
             seed = int.from_bytes(fid.read(4), 'little') % 10000000
     rs = RandomState(MT19937(SeedSequence(seed)))
+    OU_seeds = rs.randint(0, 100000, size=N_loads)
+    rs = [RandomState(MT19937(SeedSequence(seed))) for seed in OU_seeds]
     print('Building OU stimuli...')
+    U = np.zeros((N_loads, N_samples))
     for i in iter_fun(range(N_loads)):
-        U[i,:] = OU_2(dt, alpha[i], mu[i], c[i], N_samples, random_state=rs)
-    
-    TFs = data['TF'][:,:,vars_idx]
-    OUT_PSDs = data['OUT'][:,:,vars_idx]
+        U[i,:] = OU_2(dt, alpha[i], mu[i], c[i], N_samples, random_state=rs[i])
 
-    systems = [[] for _ in range(N_loads)]
-    N_poles = 20
-    Y = np.zeros((N_loads, N_vars, N_samples))
+    print('(Vector) fitting the TFs...')
+    # data['TF'][:,loads_idx,vars_idx] does not return what you would expect...
+    # we need to do this:
+    J,K = np.meshgrid(loads_idx, vars_idx, indexing='ij')
+    TF = data['TF'][:,J,K]
+    shp = N_vars,N_loads
+    N_poles = np.zeros(shp, dtype=int)
+    rms_err = np.zeros(shp)
+    rms_thresh = np.zeros(shp)
+    fit = np.zeros((N_vars, N_loads, F.size), dtype=complex)
+    systems = [[] for _ in range(N_vars)]
+    max_N_poles = 50
+    for i in iter_fun(range(N_vars)):
+        for j in range(N_loads):
+            tf = TF[:,j,i]
+            rms_thresh[i,j] = 10 ** (np.floor(np.log10(np.abs(tf).mean())) - 3)
+            for n in range(max_N_poles):
+                SER, _, rms_err[i,j], fit[i,j,:] = run_vf(tf, F, n+1)
+                if abs(rms_err[i,j]) < rms_thresh[i,j]:
+                    break
+            N_poles[i,j] = n+1
+            systems[i].append(lti(SER['A'],SER['B'],SER['C'],SER['D']))
 
-    use_dBs = True
+    print('Computing the output time series...')
+    Y = np.zeros((N_vars,N_samples))
+    for i in iter_fun(range(N_vars)):
+        y_all = []
+        for S,u in zip(systems[i],U):
+            _,y,_ = lsim(S,u,time)
+            assert y.imag.max() < 1e-10
+            y_all.append(y.real)
+        Y[i,:] = np.sum(y_all, axis=0)
 
+    print('Computing the power spectral densities of the outputs...')
     window = 200/dt
     onesided = True
-    width,height = 2.5,1.5
-    rows,cols = 2*N_loads,N_vars
+    freq,P_Y,abs_Y = run_welch(Y, dt, window, onesided)
+    _,P_U,abs_U = run_welch(U, dt, window, onesided)
+
+    print('Combining the output spectra...')
+    OUT = data['OUT']
+    PF = data['PF'].item()
+    F0 = 50.
+    var_types = []
+    for i in range(N_vars):
+        _,typ = os.path.splitext(vars_to_sim[i])
+        if typ == '.ur':
+            var_types.append('m:ur')
+        elif typ == '.speed':
+            var_types.append('s:xspeed')
+        elif typ == '.fe':
+            var_types.append('m:fe')
+        else:
+            raise Exception(f"Unknown variable type '{typ[1:]}'")
+    OUT_multi =  combine_output_spectra(OUT, load_names, vars_to_sim, all_load_names,
+                                        all_var_names, var_types, F, PF,
+                                        data['bus_equiv_terms'].item(), ref_freq=F0)
+    
+    print('Plotting the results...')
+    use_dBs = True
+    if use_dBs:
+        abs_Y = dB*np.log10(abs_Y)
+        abs_U = dB*np.log10(abs_U)
+        ylbl = r'|Y(j$\omega$)| [dB{}]'.format(dB)
+    else:
+        ylbl = r'|Y(j$\omega$)|'
+    black = .1 + np.zeros(3)
+    gray = .5 + np.zeros(3)
+    width,height = 2.5,2
+    rows,cols = 2,N_vars+1
     fig,ax = plt.subplots(rows, cols, figsize=(cols*width, rows*height),
                           squeeze=False, sharex=True)
-    print('Filtering inputs...')
+    a = ax[1,0]
+    ax[0,0].set_visible(False)
     for i in range(N_loads):
         P_U_theor = (c[i]/alpha[i])**2 / (1 + (2*np.pi*F/alpha[i])**2)
         abs_U_theor = np.sqrt(P_U_theor)
-        P_U_theor_db = dB*np.log10(P_U_theor)
-
-        for j in iter_fun(range(N_vars)):
-            tf = TFs[i,:,j]
-            SER,poles,rmserr,fit = run_vf(tf, F, N_poles)
-            S = lti(SER['A'], SER['B'], SER['C'], SER['D'])
-            _,y,_ = lsim(S, U[i,:], time)
-            assert y.imag.max() < 1e-10
-            Y[i,j,:] = y.real
-            systems[i].append(S)
-
-            freq,P_Y,abs_Y = run_welch(Y[i,j,:], dt, window, onesided)
-            
-            ax[i,j].plot(F, dB*np.log10(np.abs(tf)), color=.1+np.zeros(3),
-                         lw=2, label=load_names[i].split('__')[0])
-            ax[i,j].plot(F, dB*np.log10(np.abs(np.squeeze(fit))),
-                         color=[1,0,0], lw=1, label='Fit')
-
-            I = i + N_loads
-            y = dB*np.log10(abs_Y) if use_dBs else abs_Y
-            TFxU = dB*np.log10(np.abs(tf)*abs_U_theor) if use_dBs else np.abs(tf)*abs_U_theor
-            out = dB*np.log10(np.abs(OUT_PSDs[i,:,j])) if use_dBs else np.abs(OUT_PSDs[i,:,j])
-            ax[I,j].plot(freq, y, color=[1,0.5,0], lw=0.75, label='Y')
-            ax[I,j].plot(F, TFxU, color=[.9,0,.9], lw=2, label='TFxIN')
-            ax[I,j].plot(F, out, color=[0,.9,0], lw=1, label='OUT')
-
-            title = vars_to_sim[j].split('-')[-1].split('.')[0].split('__')[0]
-            title += '.' + '.'.join(vars_to_sim[j].split('.')[-2:])
-            ax[i,j].set_title(title, fontsize=8)
-            ax[i,j].set_xscale('log')
-            ax[I,j].set_xscale('log')
-
-    lgnd_kwargs = {'loc':'best', 'fontsize':8, 'frameon':False}
-    ax[0,0].legend(**lgnd_kwargs)
-    ax[N_loads,0].legend(**lgnd_kwargs)
-    for a in ax[-1,:]:
-        a.set_xlabel('Frequency [Hz]')
-    for a in ax[:,0]:
         if use_dBs:
-            a.set_ylabel(r'|Y(j$\omega$)| [dB{}]'.format(dB))
-        else:
-            a.set_ylabel(r'|Y(j$\omega$)|')
+            abs_U_theor = dB*np.log10(abs_U_theor)
+        a.plot(freq, abs_U[i,:], color=gray, lw=0.75)
+        a.plot(F, abs_U_theor, color='tab:red', lw=1)
+    a.set_xlabel('Frequency [Hz]')
+    a.set_ylabel(ylbl)
+    a.set_title('Inputs')
+
+    for i in range(N_vars):
+        for j in range(N_loads):
+            tf = np.abs(TF[:,j,i])
+            tf_fit = np.abs(fit[i,j,:])
+            if use_dBs:
+                tf,tf_fit = dB*np.log10(tf),dB*np.log10(tf_fit)
+            ax[0,i+1].plot(F, tf, color=black, lw=2)
+            ax[0,i+1].plot(F, tf_fit, color='tab:red', lw=0.75)
+
+        out = np.abs(OUT_multi[i,:])
+        if use_dBs:
+            out = dB*np.log10(out)
+        ax[1,i+1].plot(freq, abs_Y[i,:], color=gray, lw=0.75)
+        ax[1,i+1].plot(F, out, color='tab:red', lw=1)
+
+        for a in ax[:,i+1]:
+            a.set_xscale('log')
+
+        title = vars_to_sim[i].split('-')[-1].split('.')[0].split('__')[0]
+        title += '.' + '.'.join(vars_to_sim[i].split('.')[-2:])
+        ax[0,i+1].set_title(title, fontsize=8)
+
+    for a in ax[-1,1:]:
+        a.set_xlabel('Frequency [Hz]')
+    for a in ax[:,1]:
+        a.set_ylabel(ylbl)
     sns.despine()
     fig.tight_layout()
     plt.savefig(os.path.join(outdir, os.path.splitext(outfile)[0]+'.pdf'))
@@ -301,7 +356,6 @@ if __name__ == '__main__':
     N_samples_per_block = int(block_dur / dt)
     N_blocks = N_samples // N_samples_per_block
     
-    PF = data['PF'].item()
     inertia = [SM_info[k]['h'] for k in PF['SMs'] if k in SM_info]
     S = [SM_info[k]['S'] for k in PF['SMs'] if k in SM_info]
     generator_IDs = [k for k in PF['SMs'] if k not in ('Ptot','Qtot')]
@@ -348,7 +402,7 @@ if __name__ == '__main__':
     tbl.flush()
 
     fid.create_array(fid.root, 'time', np.arange(N_samples_per_block)*dt)
-    for var_name,y in zip(vars_to_sim,Y[0,:,:]):
+    for var_name,y in zip(vars_to_sim,Y):
         fid.create_array(fid.root,
                          var_name.replace('-','_').replace('.','_'),
                          np.reshape(y[:N_blocks*N_samples_per_block],
