@@ -989,7 +989,7 @@ def combine_output_spectra(output_spectra, var_name, device_names, network_var_n
         raise Exception('{} instances of variables containing `{}` and `{}`'.\
                         format(len(full_names), obj_name, var_name))    
 
-    add_spectra = lambda sp: np.sqrt(np.sum(np.abs(sp)**2, axis=0))
+    add_spectra = lambda sp: np.sqrt(np.sum(np.abs(sp)**2, axis=1))
     combined_spectra = {}
     for name in device_names:
         if var_name == 's:xspeed':
