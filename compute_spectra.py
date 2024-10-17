@@ -75,8 +75,11 @@ if __name__ == '__main__':
             i += 1
             v = sys.argv[i]
             if os.path.isfile(v):
-                with open(v,'r') as fid:
-                    load_names = [l.strip() for l in fid]
+                if os.path.splitext(v)[1] == '.json':
+                    load_names = json.load(open(v,'r'))['load_names']
+                else:
+                    with open(v,'r') as fid:
+                        load_names = [l.strip() for l in fid]
             else:
                 load_names = v.split(',')
         elif arg in ('-V', '--vars-to-save'):
@@ -335,10 +338,10 @@ if __name__ == '__main__':
     I = np.eye(N_state_vars)
     M = np.zeros((N_freq, N_state_vars, N_state_vars), dtype=complex)
     # the transfer functions are complex numbers
-    TF  = np.zeros((N_inputs, N_freq, N_state_vars+N_algebraic_vars), dtype=complex)
+    TF  = np.zeros((N_freq, N_inputs, N_state_vars+N_algebraic_vars), dtype=complex)
     # the absolute value of the spectra of the outputs are real numbers:
     # we will take the abs at the end of the function
-    OUT = np.zeros((N_inputs, N_freq, N_state_vars+N_algebraic_vars), dtype=complex)
+    OUT = np.zeros((N_freq, N_inputs, N_state_vars+N_algebraic_vars), dtype=complex)
 
     for i in tqdm(range(N_freq), ascii=True, ncols=70):
         M[i,:,:] = inv(-A + 1j*2*np.pi*F[i]*I)
@@ -348,12 +351,12 @@ if __name__ == '__main__':
             v = np.zeros(N_algebraic_vars, dtype=float)
             v[idx[j]] = 1
             tmp = MxB @ v
-            TF[j,i,:N_state_vars] = tmp
-            TF[j,i,N_state_vars:] = C @ tmp - Jgy_inv @ v
+            TF[i,j,:N_state_vars] = tmp
+            TF[i,j,N_state_vars:] = C @ tmp - Jgy_inv @ v
             v[idx[j]] = psd
             tmp = MxB @ v
-            OUT[j,i,:N_state_vars] = tmp
-            OUT[j,i,N_state_vars:] = C @ tmp - Jgy_inv @ v
+            OUT[i,j,:N_state_vars] = tmp
+            OUT[i,j,N_state_vars:] = C @ tmp - Jgy_inv @ v
     TF[TF==0] = 1e-20 * (1+1j)
     OUT[OUT==0] = 1e-20 * (1+1j)
     var_names,idx = [],[]
@@ -387,12 +390,12 @@ if __name__ == '__main__':
 
         def do_calc(X,coeffs,F,F0,ref):
             ret = np.zeros(X.shape[:2], dtype=complex)
-            N_TF = X.shape[0]
-            for i in range(N_TF):
-                ret[i,:] = coeffs[0]*X[i,:,0] + coeffs[1]*X[i,:,1]
-                ret[i,:] *= 1j*2*np.pi*F # Δω = jωΔθ
-                ret[i,:] /= 2*np.pi*F0 # !!! scaling factor !!!
-                ret[i,:] += ref[i,:]
+            N_TF = X.shape[1]
+            for j in range(N_TF):
+                ret[:,j] = coeffs[0]*X[:,j,0] + coeffs[1]*X[:,j,1]
+                ret[:,j] *= 1j*2*np.pi*F # Δω = jωΔθ
+                ret[:,j] /= 2*np.pi*F0 # !!! scaling factor !!!
+                ret[:,j] += ref[:,j]
             return ret
 
         for i in tqdm(range(N_buses), ascii=True, ncols=70):
