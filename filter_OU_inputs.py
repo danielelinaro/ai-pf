@@ -189,18 +189,18 @@ if __name__ == '__main__':
     # all the variable names in the power network
     all_var_names = data['var_names']
     # the variable names to simulate
-    vars_to_sim = config['var_names']
-    if isinstance(vars_to_sim, str):
+    var_names = config['var_names']
+    if isinstance(var_names, str):
         # config['var_names'] is the name of a JSON file that contains the variable names
-        if os.path.isabs(vars_to_sim):
-            var_names_file = vars_to_sim
+        if os.path.isabs(var_names):
+            var_names_file = var_names
         else:
-            var_names_file = os.path.join(os.path.dirname(config_file), vars_to_sim)
-        vars_to_sim = json.load(open(var_names_file))['var_names']
+            var_names_file = os.path.join(os.path.dirname(config_file), var_names)
+        var_names = json.load(open(var_names_file))['var_names']
     else:
         var_names_file = None
     vars_idx = []
-    for name in vars_to_sim:
+    for name in var_names:
         idx, = np.where(all_var_names == name)
         if len(idx) != 1:
             print(f'{name}: no such variable.')
@@ -209,13 +209,14 @@ if __name__ == '__main__':
         vars_idx.append(idx[0])
 
     vars_idx = np.array(vars_idx)
-    N_vars = len(vars_to_sim)
+    N_vars = len(var_names)
 
     load_names = config['load_names']
     N_loads = len(load_names)
     all_load_names = data['load_names'].tolist()
     loads_idx = np.array([all_load_names.index(load_name) for load_name in load_names])
-    mu = data['mu'][loads_idx]
+    # mean has to be zero because we are simulating small signal fluctuations around the mean
+    mu = np.zeros(N_loads)
     c = data['c'][loads_idx]
     alpha = data['alpha'][loads_idx]
     if tend is None:
@@ -229,10 +230,11 @@ if __name__ == '__main__':
     else:
         with open('/dev/urandom', 'rb') as fid:
             seed = int.from_bytes(fid.read(4), 'little') % 10000000
+    print(f'Seed: {seed}')
     rs = RandomState(MT19937(SeedSequence(seed)))
     OU_seeds = rs.randint(0, 100000, size=N_loads)
     rs = [RandomState(MT19937(SeedSequence(seed))) for seed in OU_seeds]
-    print('Building OU stimuli...')
+    print('Building the OU stimuli...')
     U = np.zeros((N_loads, N_samples))
     for i in iter_fun(range(N_loads)):
         U[i,:] = OU_2(dt, alpha[i], mu[i], c[i], N_samples, random_state=rs[i])
@@ -282,7 +284,7 @@ if __name__ == '__main__':
     F0 = 50.
     var_types = []
     for i in range(N_vars):
-        _,typ = os.path.splitext(vars_to_sim[i])
+        _,typ = os.path.splitext(var_names[i])
         if typ == '.ur':
             var_types.append('m:ur')
         elif typ == '.speed':
@@ -291,7 +293,7 @@ if __name__ == '__main__':
             var_types.append('m:fe')
         else:
             raise Exception(f"Unknown variable type '{typ[1:]}'")
-    OUT_multi =  combine_output_spectra(OUT, load_names, vars_to_sim, all_load_names,
+    OUT_multi =  combine_output_spectra(OUT, load_names, var_names, all_load_names,
                                         all_var_names, var_types, F, PF,
                                         data['bus_equiv_terms'].item(), ref_freq=F0)
     
@@ -340,8 +342,8 @@ if __name__ == '__main__':
         for a in ax[:,i+1]:
             a.set_xscale('log')
 
-        title = vars_to_sim[i].split('-')[-1].split('.')[0].split('__')[0]
-        title += '.' + '.'.join(vars_to_sim[i].split('.')[-2:])
+        title = var_names[i].split('-')[-1].split('.')[0].split('__')[0]
+        title += '.' + '.'.join(var_names[i].split('.')[-2:])
         ax[0,i+1].set_title(title, fontsize=8)
 
     for a in ax[-1,1:]:
@@ -368,8 +370,8 @@ if __name__ == '__main__':
     compression_filter = tables.Filters(complib='zlib', complevel=5)
     fid = tables.open_file(os.path.join(outdir, outfile), 'w', filters=compression_filter)
 
-    var_len = 2**int(np.ceil(np.log2(max([len(v) for v in vars_to_sim]))))
-    N_vars_to_sim = len(vars_to_sim)
+    from itertools import chain
+    var_len = 2**int(np.ceil(np.log2(max([len(v) for v in chain(var_names,load_names)]))))
     class Parameters (tables.IsDescription):
         F0             = tables.Float64Col()
         srate          = tables.Float64Col()
@@ -380,9 +382,11 @@ if __name__ == '__main__':
         inertia        = tables.Float64Col(shape=(N_generators,))
         S              = tables.Float64Col(shape=(N_generators,))
         seed           = tables.Int64Col()
+        OU_seeds       = tables.Int64Col(shape=(N_loads,))
         generator_IDs  = tables.StringCol(128, shape=(N_generators,))
         var_names_file = tables.StringCol(128, shape=(1,))
-        vars_to_sim    = tables.StringCol(var_len, shape=(N_vars_to_sim,))
+        var_names      = tables.StringCol(var_len, shape=(N_vars,))
+        load_names     = tables.StringCol(var_len, shape=(N_loads,))
 
     tbl = fid.create_table(fid.root, 'parameters', Parameters, 'parameters')
     params = tbl.row
@@ -395,14 +399,16 @@ if __name__ == '__main__':
     params['inertia']        = inertia
     params['S']              = S
     params['seed']           = seed
+    params['OU_seeds']       = OU_seeds
     params['generator_IDs']  = generator_IDs
     params['var_names_file'] = [var_names_file] if var_names_file is None else ['N/A']
-    params['vars_to_sim']    = vars_to_sim
+    params['var_names']      = var_names
+    params['load_names']     = load_names
     params.append()
     tbl.flush()
 
     fid.create_array(fid.root, 'time', np.arange(N_samples_per_block)*dt)
-    for var_name,y in zip(vars_to_sim,Y):
+    for var_name,y in zip(var_names,Y):
         fid.create_array(fid.root,
                          var_name.replace('-','_').replace('.','_'),
                          np.reshape(y[:N_blocks*N_samples_per_block],
