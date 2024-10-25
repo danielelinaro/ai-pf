@@ -20,7 +20,8 @@ def usage(exit_code=None):
     print(prefix + '[-o | --outfile <value>] [-f | --force] [--tau <value>]')
     print(prefix + '[--ref-sm <name>] [--no-add-TF] <--P | --Q | --PQ>')
     print(prefix + '<--dP | --sigmaP value1<,value2,...>> <--dQ | --sigmaQ value1<,value2,...>>')
-    print(prefix + '<-L | --loads load1<,load2,...>> file')
+    print(prefix + '<-L | --loads load1<,load2,...> | filename>')
+    print(prefix + '<-V | --vars-to-save var1<,var2,...> | filename> AC_data_file')
     if exit_code is not None:
         sys.exit(exit_code)
 
@@ -44,13 +45,14 @@ if __name__ == '__main__':
     save_mat = False
     outdir, outfile = '', None
     load_names = None
+    vars_to_save = None
     use_P_constraint, use_Q_constraint = False, False
     dP,dQ = [],[]
     sigmaP,sigmaQ = [],[]
     # time constant of the OU process
     tau = 20e-3
     F0 = 50.
-    ref_SM_name = None
+    ref_SM_name = 'CODCTI0201GGR1____GEN_____'
     compute_additional_TFs = True
     use_numpy_inv = False
 
@@ -71,7 +73,26 @@ if __name__ == '__main__':
             steps_per_decade = int(sys.argv[i])
         elif arg in ('-L', '--loads'):
             i += 1
-            load_names = sys.argv[i].split(',')
+            v = sys.argv[i]
+            if os.path.isfile(v):
+                if os.path.splitext(v)[1] == '.json':
+                    load_names = json.load(open(v,'r'))['load_names']
+                else:
+                    with open(v,'r') as fid:
+                        load_names = [l.strip() for l in fid]
+            else:
+                load_names = v.split(',')
+        elif arg in ('-V', '--vars-to-save'):
+            i += 1
+            v = sys.argv[i]
+            if os.path.isfile(v):
+                if os.path.splitext(v)[1] == '.json':
+                    vars_to_save = json.load(open(v,'r'))['var_names']
+                else:
+                    with open(v,'r') as fid:
+                        vars_to_save = [l.strip() for l in fid]
+            else:
+                vars_to_save = v.split(',')
         elif arg == '--no-add-TF':
             compute_additional_TFs = False
         elif arg == '--P':
@@ -260,49 +281,37 @@ if __name__ == '__main__':
     PF_loads = data['PF_without_slack'].item()['loads']
     idx = []
     mu,c,alpha = [],[],[]
+    full_element_names = list(vars_idx.keys())
+    element_names = list(map(lambda s: s.split('.')[0].split('-')[-1], full_element_names))
+    bus_equiv_terms = data['bus_equiv_terms'].item()
     for i,load_name in enumerate(load_names):
-        keys = []
+        found = False
         bus_name = load_buses[load_name]
-        if bus_name not in vars_idx:
-            # we have to look through the equivalent terms of bus_name
-            bus_equiv_terms = data['bus_equiv_terms'].item()
-            for equiv_term_name in bus_equiv_terms[bus_name]:
-                if equiv_term_name in vars_idx:
-                    print('Load {} is connected to bus {}, which is not among the '.
-                          format(load_name, bus_name) + 
-                          'buses whose ur and ui variables are in the Jacobian, but {} is.'.
-                          format(equiv_term_name))
-                    bus_name = equiv_term_name
+        if bus_name in element_names:
+            full_bus_name = full_element_names[element_names.index(bus_name)]
+            found = True
+            flag = ''
+        else:
+            for equiv_term in bus_equiv_terms[bus_name]:
+                if equiv_term in element_names:
+                    full_bus_name = full_element_names[element_names.index(equiv_term)]
+                    found = True
+                    flag = '*'
                     break
+        if not found:
+            print(f"Variable index for '{bus_name}' not found.")
+            continue
+        print(f'[{i+1:2d}] {bus_name} -> {full_bus_name} {flag}')
+        keys = []
         if use_P_constraint:
             # real part of voltage
-            vars_idx_keys = list(vars_idx.keys())
-            ks = [key for key in vars_idx_keys if bus_name in key]
-            if len(ks) == 1:
-                jdx = vars_idx[ks[0]]['ur']
-                if len(jdx) == 1:
-                    idx.append(jdx[0])
-                else:
-                    import ipdb
-                    ipdb.set_trace()
-            else:
-                import ipdb
-                ipdb.set_trace()
+            assert len(vars_idx[full_bus_name]['ur']) == 1
+            idx.append(vars_idx[full_bus_name]['ur'][0])
             keys.append('P')
         if use_Q_constraint:
             # imaginary part of voltage
-            vars_idx_keys = list(vars_idx.keys())
-            ks = [key for key in vars_idx_keys if bus_name in key]
-            if len(ks) == 1:
-                jdx = vars_idx[ks[0]]['ui']
-                if len(jdx) == 1:
-                    idx.append(jdx[0])
-                else:
-                    import ipdb
-                    ipdb.set_trace()
-            else:
-                import ipdb
-                ipdb.set_trace()
+            assert len(vars_idx[full_bus_name]['ui']) == 1
+            idx.append(vars_idx[full_bus_name]['ui'][0])
             keys.append('Q')
         for key in keys:
             mean = PF_loads[load_name][key]
@@ -328,8 +337,11 @@ if __name__ == '__main__':
     N_inputs = c.size
     I = np.eye(N_state_vars)
     M = np.zeros((N_freq, N_state_vars, N_state_vars), dtype=complex)
-    TF  = np.zeros((N_inputs, N_freq, N_state_vars+N_algebraic_vars), dtype=complex)
-    OUT = np.zeros((N_inputs, N_freq, N_state_vars+N_algebraic_vars), dtype=complex)
+    # the transfer functions are complex numbers
+    TF  = np.zeros((N_freq, N_inputs, N_state_vars+N_algebraic_vars), dtype=complex)
+    # the absolute value of the spectra of the outputs are real numbers:
+    # we will take the abs at the end of the function
+    OUT = np.zeros((N_freq, N_inputs, N_state_vars+N_algebraic_vars), dtype=complex)
 
     for i in tqdm(range(N_freq), ascii=True, ncols=70):
         M[i,:,:] = inv(-A + 1j*2*np.pi*F[i]*I)
@@ -339,12 +351,12 @@ if __name__ == '__main__':
             v = np.zeros(N_algebraic_vars, dtype=float)
             v[idx[j]] = 1
             tmp = MxB @ v
-            TF[j,i,:N_state_vars] = tmp
-            TF[j,i,N_state_vars:] = (C @ tmp - Jgy_inv @ v)
+            TF[i,j,:N_state_vars] = tmp
+            TF[i,j,N_state_vars:] = C @ tmp - Jgy_inv @ v
             v[idx[j]] = psd
             tmp = MxB @ v
-            OUT[j,i,:N_state_vars] = tmp
-            OUT[j,i,N_state_vars:] = (C @ tmp - Jgy_inv @ v)
+            OUT[i,j,:N_state_vars] = tmp
+            OUT[i,j,N_state_vars:] = C @ tmp - Jgy_inv @ v
     TF[TF==0] = 1e-20 * (1+1j)
     OUT[OUT==0] = 1e-20 * (1+1j)
     var_names,idx = [],[]
@@ -370,25 +382,22 @@ if __name__ == '__main__':
                     break
             ref_SM_name = SM_names[idx-1]
         print(f'Will use "{ref_SM_name}" as reference.')
-        full_var_names = [name for name in var_names if ref_SM_name in name and '.speed' in name]
-        if len(full_var_names) == 1:
-            full_var_name = full_var_names[0]
-        else:
-            import ipdb
-            ipdb.set_trace()
+        full_var_name = full_element_names[element_names.index(ref_SM_name)] + '.speed'
         ref_SM_idx = var_names.index(full_var_name)
         N_buses = len(bus_names)
-        TF2  = np.zeros((TF.shape[0],  TF.shape[1],  N_buses), dtype=complex)
+        TF2  = np.zeros(( TF.shape[0],  TF.shape[1], N_buses), dtype=complex)
         OUT2 = np.zeros((OUT.shape[0], OUT.shape[1], N_buses), dtype=complex)
 
         def do_calc(X,coeffs,F,F0,ref):
-            tmp = coeffs[0]*X[0] + coeffs[1]*X[1]
-            tmp *= 1j*2*np.pi*F # Δω = jωΔθ
-            tmp /= 2*np.pi*F0 # !!! scaling factor !!!
-            tmp += ref
-            return tmp
+            ret = np.zeros(X.shape[:2], dtype=complex)
+            N_TF = X.shape[1]
+            for j in range(N_TF):
+                ret[:,j] = coeffs[0]*X[:,j,0] + coeffs[1]*X[:,j,1]
+                ret[:,j] *= 1j*2*np.pi*F # Δω = jωΔθ
+                ret[:,j] /= 2*np.pi*F0 # !!! scaling factor !!!
+                ret[:,j] += ref[:,j]
+            return ret
 
-        OUT_ref = np.squeeze(OUT[:,:,ref_SM_idx])
         for i in tqdm(range(N_buses), ascii=True, ncols=70):
             # name = bus_names[i]
             # idx = var_names.index(name+'.ur'), var_names.index(name+'.ui')
@@ -400,20 +409,29 @@ if __name__ == '__main__':
                 ur,ui = PF['buses'][name]['ur'], PF['buses'][name]['ui']
                 if ur != 0:
                     coeffs = -ui/ur**2/(1+(ui/ur)**2), 1/(ur*(1+(ui/ur)**2))
-                    X = np.squeeze(TF[:,:,idx]).T
-                    TF2[:,:,i] = do_calc(X, coeffs, F, F0, OUT_ref)
-                    X = np.squeeze(OUT[:,:,idx]).T
-                    OUT2[:,:,i] = do_calc(X, coeffs, F, F0, OUT_ref)
+                    ##### is it TF or OUT in the following line?!? #####
+                    TF2[:,:,i]  = do_calc( TF[:,:,idx], coeffs, F, F0,  TF[:,:,ref_SM_idx])
+                    OUT2[:,:,i] = do_calc(OUT[:,:,idx], coeffs, F, F0, OUT[:,:,ref_SM_idx])
 
         var_names += [name+'.fe' for name in bus_names]
         TF  = np.concatenate((TF,TF2), axis=-1)
         OUT = np.concatenate((OUT,OUT2), axis=-1)
         assert(len(var_names) == TF.shape[2])
-        
+
+    if vars_to_save is not None:
+        idx = []
+        for var_to_save in vars_to_save:
+            idx.append(np.where([re.search(var_to_save, var_name) is not None for var_name in var_names])[0])
+        idx = np.sort(np.concatenate(idx))
+        print(f'Will save only {len(idx)} out of {len(var_names)} variables.')
+        var_names = [var_names[i] for i in idx]
+        TF = TF[:,:,idx]
+        OUT = OUT[:,:,idx]
+
     Htot = data['inertia']
     Etot = data['energy']
     Mtot = data['momentum']
-    out = {'A': A, 'F': F, 'TF': TF, 'OUT': OUT, 'var_names': var_names, 'SM_names': SM_names,
+    out = {'A': A, 'F': F, 'TF': TF, 'OUT': np.abs(OUT), 'var_names': var_names, 'SM_names': SM_names,
            'static_gen_names': static_gen_names, 'bus_names': bus_names, 'load_names': load_names,
            'Htot': Htot, 'Etot': Etot, 'Mtot': Mtot, 'H': H, 'S': S, 'P': P, 'Q': Q,
            'PF': data['PF_without_slack'], 'bus_equiv_terms': data['bus_equiv_terms'],

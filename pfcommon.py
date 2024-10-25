@@ -14,7 +14,7 @@ __all__ = ['BaseParameters', 'AutomaticVoltageRegulator', 'TurbineGovernor',
            'compute_generator_inertias', 'sort_objects_by_name', 'get_objects',
            'make_full_object_name', 'build_network_graph', 'Node', 'Edge',
            'parse_sparse_matrix_file', 'parse_Amat_vars_file', 'parse_Jacobian_vars_file',
-           'compute_TF', 'compute_TF_multiple_inputs']
+           'combine_output_spectra','combine_output_spectra_old']
 
 
 class BaseParameters (tables.IsDescription):
@@ -980,28 +980,54 @@ def parse_Jacobian_vars_file(filename):
     return vars_idx,state_vars,voltages,currents,signals
 
 
-def compute_TF(J, fmin, fmax, Nf, col_idx=0):
-    from tqdm import tqdm
-    if np.isscalar(col_idx):
-        col_idx = [col_idx]
-    F = np.logspace(fmin, fmax, Nf)
-    Nv = J.shape[0]
-    I = np.eye(Nv)
-    M = np.zeros((Nf, Nv, Nv), dtype=complex)
-    TF = np.zeros((Nf, Nv), dtype=complex)
-    for i in tqdm(range(Nf), ascii=True, ncols=70):
-        M[i,:,:] = np.linalg.inv(-J + 1j * 2 * np.pi * F[i] * I)
-        # using M[i,:,col_idx] mixes basic slicing and advanced indexing,
-        # which causes numpy to rearrange the columns indexed by col_idx
-        # as rows in the resulting matrix. See this link for further
-        # explanations: https://stackoverflow.com/questions/48034413/numpy-indexing-ambiguity-in-3d-arrays
-        TF[i,:] = M[i:i+1,:,col_idx].sum(axis=2)
-        # alternatively:
-        #TF[i,:] = M[i,:,col_idx].T.sum(axis=1)
-    return TF,F,M
+def combine_output_spectra(output_spectra, input_names, output_names, load_names,
+                           var_names, var_types, freq, PF, bus_equiv_terms,
+                           ref_freq=50.0, ref_SM_name=None):
+    """
+    Arguments:
+     output_spectra: an ndarray with dimensions MxNxL, where M is the number of frequency
+                     samples, N is the number of inputs and L is the number of outputs.
+                     The inputs are the stochastic loads and the outputs are the
+                     variables of the network
+        input_names: the names of the inputs that should be used in the calculation of the
+                     combined spectra
+       output_names: the names of the outputs for which the combined spectra should be
+                     computed
+         load_names: the N load names for which individual TFs are available
+          var_names: the L variable names for which individual TFs are available
+          var_types: a list of L variable types (m:ur, s:xspeed, ...)
+               freq: the frequencies at which the TFs are sampled
+                 PF: the data with the power-flow solution of the power network
+    bus_equiv_terms: ...
+           ref_freq: the frequency at which the system operates (i.e., 50 or 60 Hz)
+        ref_SM_name: the name of the slack synchronous machine
+
+    Returns:
+      an ndarray with dimensions (# outputs, # freq. samples), where each row is the
+      combined spectrum for a given output
+    """
+    add_spectra = lambda sp: np.sqrt(np.sum(np.abs(sp)**2, axis=1))
+
+    # make sure that things work also if load_names and var_names are NumPy arrays
+    load_names_L = list(load_names)
+    var_names_L = list(var_names)
+    N_outputs = len(output_names)
+    N_samples = output_spectra.shape[0]
+    assert freq.size == N_samples
+    spectra = np.zeros((N_outputs,N_samples))
+    inputs_idx = [load_names_L.index(input_name) for input_name in input_names]
+    for i in range(N_outputs):
+        if var_types[i] in ('m:ur','m:ui','s:xspeed'):
+            output_idx = var_names_L.index(output_names[i])
+            spectra[i,:] = add_spectra(output_spectra[:,inputs_idx,output_idx])
+        elif var_name == 'U':
+            raise NotImplementedError('Not implemented yet')
+        elif var_name in ('m:fe', 'theta', 'omega'):
+            raise NotImplementedError('Not implemented yet')
+    return spectra
 
 
-def compute_TF_multiple_inputs(TF, var_name, device_names, network_var_names,
+def combine_output_spectra_old(output_spectra, var_name, device_names, network_var_names,
                                ref_SM_name, freq, ref_freq, PF, bus_equiv_terms, dB=20):
 
     def find_var_name(all_names, obj_name, var_name):
@@ -1010,12 +1036,13 @@ def compute_TF_multiple_inputs(TF, var_name, device_names, network_var_names,
         if len(full_names) == 0:
             return None
         if len(full_names) == 1:
-            return np.where(all_names == full_names[0])[0][0]
+            return list(all_names).index(full_names[0])
         print(full_names)
         raise Exception('{} instances of variables containing `{}` and `{}`'.\
                         format(len(full_names), obj_name, var_name))    
 
-    TF_total = {}
+    add_spectra = lambda sp: np.sqrt(np.sum(np.abs(sp)**2, axis=1))
+    combined_spectra = {}
     for name in device_names:
         if var_name == 's:xspeed':
             idx = find_var_name(network_var_names, name, 'speed')
@@ -1024,7 +1051,7 @@ def compute_TF_multiple_inputs(TF, var_name, device_names, network_var_names,
                 if idx is None:
                     raise Exception('Cannot find variable `{}` of object `{}`'.\
                                     format(var_name, name))
-            TF_total[name] = np.sqrt(np.sum(TF[:,:,idx]**2, axis=0))
+            combined_spectra[name] = add_spectra(output_spectra[:,:,idx])
         elif var_name in ('m:ur','m:ui'):
             u = var_name.split(':')[1]
             idx = find_var_name(network_var_names, name, u)
@@ -1036,7 +1063,7 @@ def compute_TF_multiple_inputs(TF, var_name, device_names, network_var_names,
             if idx is None:
                 raise Exception('Cannot find variable `{}` of object `{}`'.\
                                 format(var_name, name))
-            TF_total[name] = np.sqrt(np.sum(TF[:,:,idx]**2, axis=0))
+            combined_spectra[name] = add_spectra(output_spectra[:,:,idx])
         elif var_name == 'U':
             idx_ur = find_var_name(network_var_names, name, 'ur')
             if idx_ur is not None:
@@ -1056,8 +1083,8 @@ def compute_TF_multiple_inputs(TF, var_name, device_names, network_var_names,
                 print('{}: ur,ui = ({:g},{:g})'.format(name, ur, ui))
                 continue
             coeff_ur,coeff_ui = np.array([ur,ui]) / np.sqrt(ur**2+ui**2)
-            tmp = coeff_ur*TF[:,:,idx_ur] + coeff_ui*TF[:,:,idx_ui]
-            TF_total[name] = np.sqrt(np.sum(tmp**2, axis=0))
+            tmp = coeff_ur*output_spectra[:,:,idx_ur] + coeff_ui*output_spectra[:,:,idx_ui]
+            combined_spectra[name] = add_spectra(tmp)
         elif var_name in ('m:fe','theta','omega'):
             idx_ur = find_var_name(network_var_names, name, 'ur')
             if idx_ur is not None:
@@ -1078,7 +1105,7 @@ def compute_TF_multiple_inputs(TF, var_name, device_names, network_var_names,
                 continue
             coeff_ur = -ui/ur**2/(1+(ui/ur)**2)
             coeff_ui = 1/(ur*(1+(ui/ur)**2))
-            tmp = coeff_ur*TF[:,:,idx_ur] + coeff_ui*TF[:,:,idx_ui]
+            tmp = coeff_ur*output_spectra[:,:,idx_ur] + coeff_ui*output_spectra[:,:,idx_ui]
             if var_name in ('m:fe','omega'):
                 tmp *= 1j*2*np.pi*freq # Δω = jωΔθ
                 if var_name == 'm:fe':
@@ -1087,8 +1114,8 @@ def compute_TF_multiple_inputs(TF, var_name, device_names, network_var_names,
                         raise Exception('Cannot find variable `speed` of object `{}`'.\
                                         format(ref_SM_name))
                     tmp /= 2*np.pi*ref_freq # !!! scaling factor !!!
-                    tmp += TF[:,:,ref_SM_idx]
-            TF_total[name] = np.sqrt(np.sum(tmp**2, axis=0))
+                    tmp += output_spectra[:,:,ref_SM_idx]
+            combined_spectra[name] = add_spectra(tmp)
     if dB is None:
-        return TF_total
-    return TF_total, {k: dB*np.log10(np.abs(v)) for k,v in TF_total.items()}
+        return combined_spectra
+    return combined_spectra, {k: dB*np.log10(np.abs(v)) for k,v in combined_spectra.items()}

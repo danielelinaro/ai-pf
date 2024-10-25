@@ -1,0 +1,26 @@
+{
+    "var_names": [
+        "Grid-MACCDI-MACCDI1501________SUBNET__-MACCDI1501A1______BUS_____.ElmTerm.ur",
+        "Grid-SECCDI-SECCDI1501________SUBNET__-SECCDI1501A1______BUS_____.ElmTerm.ur",
+        "Grid-RASCZI-RASCZI1501________SUBNET__-RASCZI1501A1______BUS_____.ElmTerm.ur",
+        "Grid-PT1CTI-PT1CTI1501________SUBNET__-PT1CTI1501B1______BUS_____.ElmTerm.ur",
+        "Grid-SGSC_I-SGSC_I1501________SUBNET__-SGSC_I1501A1______BUS_____.ElmTerm.ur",
+        "Grid-TULCTI-TULCTI1501________SUBNET__-TULCTI1501A1______BUS_____.ElmTerm.ur",
+        "Grid-FSACTI-FSACTI3803________SUBNET__-FSACTI3803A1______BUS_____.ElmTerm.ur",
+        "Grid-SN1CDI-SN1CDI1501________SUBNET__-SN1CDI1501A1______BUS_____.ElmTerm.ur",
+        "Grid-SGLCDI-SGLCDI1501________SUBNET__-SGLCDI1501A1______BUS_____.ElmTerm.ur",
+        "Grid-FSOCZI-FSOCZI1501________SUBNET__-FSOCZI1501A3______BUS_____.ElmTerm.ur",
+        "Grid-ORSCTI-ORSCTI1501________SUBNET__-ORSCTI1501A1______BUS_____.ElmTerm.ur",
+        "Grid-NMGC_I-NMGC_I1501________SUBNET__-NMGC_I1501A1______BUS_____.ElmTerm.ur",
+        "Grid-OLSCDI-OLSCDI1501________SUBNET__-OLSCDI1501A2______BUS_____.ElmTerm.ur",
+        "Grid-VIDCDI-VIDCDI1501________SUBNET__-VIDCDI1501A1______BUS_____.ElmTerm.ur",
+        "Grid-NUOCDI-NUOCDI1501________SUBNET__-NUOCDI1501B1______BUS_____.ElmTerm.ur",
+        "Grid-CSUCTI-CSUCTI3801________SUBNET__-CSUCTI3801B1______BUS_____.ElmTerm.ur",
+        "Grid-ECOCZI-ECOCZI2201________SUBNET__-ECOCZI2201A1______BUS_____.ElmTerm.ur",
+        "Grid-TALCTI-TALCTI2201________SUBNET__-TALCTI2201B1______BUS_____.ElmTerm.ur",
+        "Grid-EPTCZI-EPTCZI1502________SUBNET__-EPTCZI1502A1______BUS_____.ElmTerm.ur",
+        "Grid-RUMCTI-RUMCTI2201________SUBNET__-RUMCTI2201A1______BUS_____.ElmTerm.ur",
+        "Grid-CODCTI-CODCTI0201________SUBNET__-CODCTI0201A1______BUS_____.ElmTerm.ur",
+        "Grid-CODCTI-CODCTI0201________SUBNET__-CODCTI0201GGR1____GEN_____.ElmSym.speed"
+    ]
+}
