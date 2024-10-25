@@ -358,11 +358,16 @@ class Bus (object):
         return '{} {:5s} powerbus vb={:.6e} v0={:.6e} theta0={:.6e}' \
                 .format(self.name, self.terminal, self.vb, self.v0, self.theta0)
                 
-def get_objects(app, pattern, keep_out_of_service=False):
-    if pattern[:2] != '.*':
-        pattern = '.*' + pattern
-    return [obj for obj in app.GetCalcRelevantObjects(pattern) if \
-            not obj.HasAttribute('outserv') or not obj.outserv or keep_out_of_service]
+def get_objects(app, pattern, keep_out_of_service=False, sort=False):
+    if pattern[:2] != '*.':
+        pattern = '*.' + pattern
+    objs = filter(lambda obj: keep_out_of_service or \
+                  not obj.HasAttribute('outserv') or \
+                  not obj.outserv, app.GetCalcRelevantObjects(pattern))
+    if sort:
+        D = {obj.loc_name: obj for obj in objs}
+        return [D[k] for k in sorted(D.keys())]
+    return list(objs)
 
 
 make_full_object_name = lambda obj: '|'.join([s.split('.Elm')[0] for s in 
@@ -484,7 +489,7 @@ def build_network_graph(app, verbose=False):
 
     G = MultiGraph()
     for e in edges:
-        G.add_edge(e.node1.name, e.node2.name, weight=e.length,
+        G.add_edge(e.node1, e.node2, weight=e.length,
                    label=e.name, voltage=e.voltage)
 
     return G,edges,nodes

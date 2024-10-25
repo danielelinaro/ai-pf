@@ -32,7 +32,10 @@ if __name__ == '__main__':
             D[typ] = {}
     SMs = app.GetCalcRelevantObjects('*.ElmSym')
     SGs = app.GetCalcRelevantObjects('*.ElmGenstat')
-    SMs_and_SGs = SMs + SGs
+    substations = app.GetCalcRelevantObjects('*.ElmSubstat')
+    terminals = app.GetCalcRelevantObjects('*.ElmTerm')
+    loads = app.GetCalcRelevantObjects('*.ElmLod')
+    all_objs = SMs + SGs + terminals + loads
     for typ in obj_types:
         print(f"Loading objects of type 'Elm{typ}'...")
         for obj in app.GetCalcRelevantObjects('*.Elm' + typ):
@@ -41,20 +44,28 @@ if __name__ == '__main__':
             if typ == 'Site' and (lat != 0 or lon != 0):
                 site_contents = obj.GetContents()
                 for site_obj in site_contents:
-                    if '__SUBNET__' in site_obj.loc_name:
+                    # if '__SUBNET__' in site_obj.loc_name:
+                    if site_obj in substations:
                         substation_contents = site_obj.GetContents()
                         for substation_obj in substation_contents:
-                            if substation_obj in SMs_and_SGs:
-                                key = 'Sym' if substation_obj in SMs else 'Genstat'
+                            if substation_obj in all_objs:
+                                if substation_obj in SMs:
+                                    key = 'Sym'
+                                if substation_obj in SGs:
+                                    key = 'Genstat'
+                                elif substation_obj in terminals:
+                                    key = 'Term'
+                                elif substation_obj in loads:
+                                    key = 'Lod'
                                 obj_name = substation_obj.loc_name
                                 outserv = substation_obj.outserv
             elif typ != 'Site':
                 key = typ
                 obj_name = obj.loc_name
                 outserv = obj.outserv
-            if obj_name is not None and lat > 0 and lon > 0:
+            if lat > 0 and lon > 0 and obj_name is not None and obj_name not in D[key]:
                 D[key][obj_name] = {'lat': lat, 'lon': lon, 'outserv': outserv}
-                
+
     json.dump(D, open('{}_coords.json'.format(project_name.split(os.path.sep)[-1]),'w'), indent=4)
     
     SM_info = {sm.loc_name: {'h': sm.typ_id.h, 'S': sm.typ_id.sgn} for sm in SMs}
