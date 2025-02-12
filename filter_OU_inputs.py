@@ -242,12 +242,16 @@ if __name__ == '__main__':
     rs = RandomState(MT19937(SeedSequence(seed)))
     OU_seeds = rs.randint(0, 100000, size=N_loads)
     rs = [RandomState(MT19937(SeedSequence(seed))) for seed in OU_seeds]
-    print('Building the OU stimuli...')
+    sys.stdout.write('Building the OU stimuli... ')
+    sys.stdout.flush()
+    t0 = TIME()
     U = np.zeros((N_loads, N_samples))
-    for i in iter_fun(range(N_loads)):
+    for i in range(N_loads):
         U[i,:] = OU_2(dt, alpha[i], mu[i], c[i], N_samples, random_state=rs[i])
+    sys.stdout.write('done in {:.3f} sec.\n'.format(TIME()-t0))
 
     print('(Vector) fitting the TFs...')
+    t0 = TIME()
     # data['TF'][:,loads_idx,vars_idx] does not return what you would expect...
     # we need to do this:
     J,K = np.meshgrid(loads_idx, vars_idx, indexing='ij')
@@ -269,8 +273,10 @@ if __name__ == '__main__':
                     break
             N_poles[i,j] = n+1
             systems[i].append(lti(SER['A'],SER['B'],SER['C'],SER['D']))
+    print('Fitting done in {:.3f} sec.'.format(TIME()-t0))
 
     print('Computing the output time series...')
+    t0 = TIME()
     Y = np.zeros((N_vars,N_samples))
     for i in iter_fun(range(N_vars)):
         y_all = []
@@ -279,14 +285,20 @@ if __name__ == '__main__':
             assert y.imag.max() < 1e-10
             y_all.append(y.real)
         Y[i,:] = np.sum(y_all, axis=0)
+    print('Output time series computed in {:.3f} sec.'.format(TIME()-t0))
 
-    print('Computing the power spectral densities of the outputs...')
+    sys.stdout.write('Computing the power spectral densities of the outputs... ')
+    sys.stdout.flush()
+    t0 = TIME()
     window = min(int(200/dt), N_samples//2)
     onesided = True
     freq,P_Y,abs_Y = run_welch(Y, dt, window, onesided)
     _,P_U,abs_U = run_welch(U, dt, window, onesided)
+    sys.stdout.write('done in {:.3f} sec.\n'.format(TIME()-t0))
 
-    print('Combining the output spectra...')
+    sys.stdout.write('Combining the output spectra... ')
+    sys.stdout.flush()
+    t0 = TIME()
     OUT = data['OUT']
     PF = data['PF'].item()
     F0 = 50.
@@ -304,9 +316,12 @@ if __name__ == '__main__':
     OUT_multi =  combine_output_spectra(OUT, load_names, var_names, all_load_names,
                                         all_var_names, var_types, F, PF,
                                         data['bus_equiv_terms'].item(), ref_freq=F0)
+    sys.stdout.write('done in {:.3f} sec.\n'.format(TIME()-t0))
 
     if do_plots:
-        print('Plotting the results...')
+        sys.stdout.write('Plotting the results... ')
+        sys.stdout.flush()
+        t0 = TIME()
         use_dBs = True
         if use_dBs:
             abs_Y = dB*np.log10(abs_Y)
@@ -362,6 +377,7 @@ if __name__ == '__main__':
         sns.despine()
         fig.tight_layout()
         plt.savefig(os.path.join(outdir, os.path.splitext(outfile)[0]+'.pdf'))
+        sys.stdout.write('done in {:.3f} sec.\n'.format(TIME()-t0))
 
     block_dur = config['block_dur']
     N_samples_per_block = int(block_dur / dt)
@@ -424,9 +440,7 @@ if __name__ == '__main__':
 
 
     fid.close()
-
-    t1 = TIME()
-    print(f'done in {t1-t0:.1f} sec.')
+    sys.stdout.write('done in {:.3f} sec.\n'.format(TIME()-t0))
 
     tend = TIME()
-    print('Elapsed time: {:.3f} sec'.format(tend-tstart))
+    print('Elapsed time: {:.3f} sec.'.format(tend-tstart))
