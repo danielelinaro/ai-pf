@@ -2,6 +2,13 @@
     "load_names": [
 	"EqX_MIMC_I2201TR1_____LOAD____"
     ],
+    "all_load_names": [
+	"EqX_MIMC_I2201TR1_____LOAD____",
+	"EqX_MIMC_I2201TR2_____LOAD____",
+	"EqX_ALIC_I1501TR1_____LOAD____",
+	"EqX_ALIC_I1501TR2_____LOAD____",
+	"EqX_CA4CDI1501TRV_____LOAD____"
+    ],
     "var_names": "var_names_41920_small.json",
     "seed": 1983,
     "tend": 600,
