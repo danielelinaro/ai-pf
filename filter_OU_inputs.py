@@ -216,8 +216,11 @@ if __name__ == '__main__':
     if 'seed' in config:
         seed = config['seed']
     else:
-        with open('/dev/urandom', 'rb') as fid:
-            seed = int.from_bytes(fid.read(4), 'little') % 10000000
+        try:
+            with open('/dev/urandom', 'rb') as fid:
+                seed = int.from_bytes(fid.read(4), 'little') % 10000000
+        except:
+            seed = int(TIME()) % 10000000
     print(f'Seed: {seed}')
     rs = RandomState(MT19937(SeedSequence(seed)))
     OU_seeds = rs.randint(0, 100000, size=N_loads)
@@ -261,7 +264,7 @@ if __name__ == '__main__':
         Y[i,:] = np.sum(y_all, axis=0)
 
     print('Computing the power spectral densities of the outputs...')
-    window = 200/dt
+    window = min(int(200/dt), N_samples//2)
     onesided = True
     freq,P_Y,abs_Y = run_welch(Y, dt, window, onesided)
     _,P_U,abs_U = run_welch(U, dt, window, onesided)

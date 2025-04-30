@@ -1356,6 +1356,7 @@ commands = {'help': help,
             'tran': run_tran}
 
 if __name__ == '__main__':
+    tstart = TIME()
     if len(sys.argv) == 1 or sys.argv[1] in ('-h','--help', 'help'):
         commands['help']()
         sys.exit(0)
@@ -1372,3 +1373,5 @@ if __name__ == '__main__':
         sys.exit(1)
     PF_APP.ResetCalculation()
     commands[sys.argv[1]]()
+    tend = TIME()
+    print('Elapsed time: {:.3f} sec.'.format(tend-tstart))

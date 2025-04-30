@@ -37,7 +37,9 @@ def save_to_mat(mat_file, data_dict=None, npz_data_file=None):
 
 
 if __name__ == '__main__':
-
+    from time import time as TIME
+    tstart = TIME()
+    
     # default values    
     fmin,fmax = -6., 2.
     steps_per_decade = 100
@@ -443,3 +445,6 @@ if __name__ == '__main__':
 
     if save_mat:
         save_to_mat(os.path.join(outdir, os.path.splitext(outfile)[0]+'.mat'), data_dict=out)
+        
+    tend = TIME()
+    print('Elapsed time: {:.3f} sec.'.format(tend-tstart))
