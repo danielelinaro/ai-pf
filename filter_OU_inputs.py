@@ -17,22 +17,9 @@ import tables
 from tqdm import tqdm
 iter_fun = lambda it: tqdm(it, ascii=True, ncols=70)
 
-import matplotlib
-import matplotlib.pyplot as plt
-from matplotlib.ticker import FixedLocator, NullLocator, FixedFormatter
-fontsize = 9
-lw = 0.75
-matplotlib.rc('font', **{'family': 'Arial', 'size': fontsize})
-matplotlib.rc('axes', **{'linewidth': 0.75, 'labelsize': fontsize})
-matplotlib.rc('xtick', **{'labelsize': fontsize})
-matplotlib.rc('ytick', **{'labelsize': fontsize})
-matplotlib.rc('xtick.major', **{'width': lw, 'size':3})
-matplotlib.rc('ytick.major', **{'width': lw, 'size':3})
-matplotlib.rc('ytick.minor', **{'width': lw, 'size':1.5})
 
-import seaborn as sns
+__all__ = ['run_vf', 'run_welch']
 
-progname = os.path.basename(sys.argv[0])
 
 def run_vf(X, F, n_poles, n_iter=4, weights=None, poles_guess=None, do_plot=False):
     """
@@ -85,7 +72,7 @@ def run_welch(x, dt, window, onesided):
     return freq, P, np.sqrt(P)
 
 
-def usage(exit_code=None):
+def usage(progname, exit_code=None):
     print(f'usage: {progname} [-h | --help] [--data-file <fname>] [--tau <value>]')
     prefix = '       ' + ' ' * (len(progname)+1)
     print(prefix + '[-o | --outfile <value>] [-s | --suffix <value>]')
@@ -94,10 +81,11 @@ def usage(exit_code=None):
         sys.exit(exit_code)
 
 
-SM_info_fname = 'V2020_Rete_Sardegna_2021_06_03cr_SM_info.json'
-SM_info = json.load(open(SM_info_fname, 'r'))
-
 if __name__ == '__main__':
+
+    progname = os.path.basename(sys.argv[0])
+    SM_info_fname = 'V2020_Rete_Sardegna_2021_06_03cr_SM_info.json'
+    SM_info = json.load(open(SM_info_fname, 'r'))
 
     # default values
     data_file = None
@@ -113,7 +101,7 @@ if __name__ == '__main__':
     while i < N_args:
         arg = sys.argv[i]
         if arg in ('-h', '--help'):
-            usage(0)
+            usage(progname, 0)
         elif arg == '--data-file':
             i += 1
             data_file = sys.argv[i]
@@ -287,6 +275,10 @@ if __name__ == '__main__':
         _,typ = os.path.splitext(var_names[i])
         if typ == '.ur':
             var_types.append('m:ur')
+        elif typ == '.ui':
+            var_types.append('m:ui')
+        elif typ == '.u':
+            var_types.append('U')
         elif typ == '.speed':
             var_types.append('s:xspeed')
         elif typ == '.fe':
@@ -298,6 +290,20 @@ if __name__ == '__main__':
                                         data['bus_equiv_terms'].item(), ref_freq=F0)
     
     print('Plotting the results...')
+    import seaborn as sns
+    import matplotlib
+    import matplotlib.pyplot as plt
+    from matplotlib.ticker import FixedLocator, NullLocator, FixedFormatter
+    fontsize = 9
+    lw = 0.75
+    matplotlib.rc('font', **{'family': 'Arial', 'size': fontsize})
+    matplotlib.rc('axes', **{'linewidth': 0.75, 'labelsize': fontsize})
+    matplotlib.rc('xtick', **{'labelsize': fontsize})
+    matplotlib.rc('ytick', **{'labelsize': fontsize})
+    matplotlib.rc('xtick.major', **{'width': lw, 'size':3})
+    matplotlib.rc('ytick.major', **{'width': lw, 'size':3})
+    matplotlib.rc('ytick.minor', **{'width': lw, 'size':1.5})
+
     use_dBs = True
     if use_dBs:
         abs_Y = dB*np.log10(abs_Y)
