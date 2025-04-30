@@ -190,10 +190,7 @@ if __name__ == '__main__':
     vars_idx = []
     for name in var_names:
         idx, = np.where(all_var_names == name)
-        if len(idx) != 1:
-            print(f'{name}: no such variable.')
-            import ipdb
-            ipdb.set_trace()
+        assert len(idx) == 1, f'{name}: no such variable.'
         vars_idx.append(idx[0])
 
     vars_idx = np.array(vars_idx)
