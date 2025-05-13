@@ -1,9 +1,11 @@
 {
 	"db_name": "Terna_Inerzia",
-    "project_name": "IEEE39_stoch",
+    "project_name": "IEEE39",
     "grid_name": "Grid",
 	"out_of_service": {"ElmGenstat": []},
 	"synch_mach": {"G 02": {"typ_id.h": 4.329}},
 	"coiref": "element",
+	"match_gen_cons": false,
+	"P_match": 1,
 	"outdir": "C:\\Users\\Terna_Inerzia\\Desktop\\modal_analysis\\IEEE39\\default\\static_load_const_Z"
 }

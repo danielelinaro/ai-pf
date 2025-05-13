@@ -1,0 +1,16 @@
+{
+	"db_name": "Terna_Inerzia",
+    "project_name": "IEEE39_stoch",
+    "grid_name": "Grid",
+	"out_of_service": {},
+	"synch_mach": {
+		"G 02": {
+			"ip_ctrl": 1,
+			"typ_id.h": 4.329
+		}
+	},
+	"coiref": "element",
+	"match_gen_cons": false,
+	"P_match": 1,
+	"outdir": "C:\\Users\\Terna_Inerzia\\Desktop\\modal_analysis\\IEEE39_stoch\\default\\static_load_const_Z\\Load_04"
+}

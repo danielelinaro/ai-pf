@@ -309,8 +309,6 @@ def _apply_configuration(config, verbosity_level):
             slacks.append(_find_object('*.ElmGenStat', SG))
     if verbosity_level > 0:
         print(f'Total power to distribute from {len(slacks)} slack generators: {P_to_distribute:.2f} MW.')
-    # import pdb
-    # pdb.set_trace()
 
     # Find the loads that model the HVDC connections
     HVDCs = [ld for ld in  _get_objects('ElmLod') if ld.typ_id.loc_name == 'HVDCload']
@@ -503,8 +501,7 @@ def _get_data(res, record_map, data_obj, interval=(0,None), dt=None, verbose=Fal
         devices = _get_objects('*.' + dev_type)
         if isinstance(record_map[dev_type]['names'], list):
             devices = [dev for dev in devices if dev.loc_name in record_map[dev_type]['names']]
-        elif isinstance(record_map[dev_type]['names'], str) and \
-            record_map[dev_type]['names'] != '*' and '*' in  record_map[dev_type]['names']:
+        elif isinstance(record_map[dev_type]['names'], str) and record_map[dev_type]['names'] != '*':
             devices = [dev for dev in devices if re.match(record_map[dev_type]['names'], dev.loc_name) is not None]
         try:
             key = record_map[dev_type]['devs_name']
@@ -662,10 +659,15 @@ class OULoad(TimeVaryingLoad):
     def write_to_file(self, dt, P, Q, n_samples, tau, verbose=False):
         if np.isscalar(tau):
             tau = [tau, tau]
-        super().write_to_file(dt,
-                              OU(dt, P[0], P[1], tau[0], n_samples, random_state=self.rs),
-                              OU(dt, Q[0], Q[1], tau[1], n_samples, random_state=self.rs),
-                              verbose)
+        if P[1] > 0:
+            self.P_OU = OU(dt, P[0], P[1], tau[0], n_samples, random_state=self.rs)
+        else:
+            self.P_OU = P[0] + np.zeros(n_samples)
+        if Q[1] > 0:
+            self.Q_OU = OU(dt, Q[0], Q[1], tau[1], n_samples, random_state=self.rs)
+        else:
+            self.Q_OU = Q[0] + np.zeros(n_samples)
+        super().write_to_file(dt, self.P_OU, self.Q_OU, verbose)
 
 
 ############################################################
@@ -772,10 +774,10 @@ def run_tran():
     n_loads = len(loads)
 
     if verbosity_level > 0:
-        if len(loads) == 1:
+        if n_loads == 1:
             print('One load matches the name pattern and has either P or Q within the limits.')
         else:
-            print(f'{len(loads)} loads match the name pattern and have either P or Q within the limits.')
+            print(f'{n_loads} loads match the name pattern and have either P or Q within the limits.')
         if verbosity_level > 2:
             print('{:^5s} {:<30s} {:^10s} {:^10s}'.format('#', 'Name', 'P [MW]', 'Q [MVAr]'))
             print('=' * 58)
@@ -786,15 +788,16 @@ def run_tran():
     stoch_loads = [OULoad(ld, PF_APP, grid, config['library_name'],
                           config['user_models_name'], config['frame_name'],
                           outdir='stoch_loads', seed=sd)
-                   for ld,sd in zip(loads,seeds)]
+                   for ld, sd in zip(loads, seeds)]
 
     dt = config['dt']
     tstop = config['tstop']
     n_samples = int(np.ceil(tstop / dt)) + 1
     tau = [config['tau']['P'], config['tau']['Q']]
-    for i,(load,stoch_load) in enumerate(zip(loads, stoch_loads)):
-        P = load.plini, np.abs(load.plini)*config['sigma']['P']
-        Q = load.qlini, np.abs(load.qlini)*config['sigma']['Q']
+
+    for i, (load, stoch_load) in enumerate(zip(loads, stoch_loads)):
+        P = load.plini, np.abs(load.plini) * config['sigma']['P']
+        Q = load.qlini, np.abs(load.qlini) * config['sigma']['Q']
         msg = 'Writing load file {:d}/{:d}...'.format(i+1, n_loads)
         sys.stdout.write(msg)
         sys.stdout.flush()
@@ -820,18 +823,23 @@ def run_tran():
     #             pdb.set_trace()
     #     else:
     #         sys.stdout.write('"{}",'.format(bus.loc_name))
-        
+    
     try:
         inc = _IC(dt, coiref=config['coiref'], verbose=verbosity_level>1)
         res, _ = _set_vars_to_save(config['record'], verbosity_level>1)
-        sim,dur,err = _tran(tstop, verbosity_level>1)
+        sim, dur, err = _tran(tstop, verbosity_level>1)
 
         interval = (0, None)
         time,data = _get_data(res, config['record'], project, interval, dt, verbosity_level>1)
         attributes, device_names, ref_SMs = _get_attributes(config['record'], verbosity_level>1)
         blob = {'config': config,
                 'seed': seed,
-                'OU_seeds': seeds,
+                'OU_seeds': np.array([ld.seed for ld in stoch_loads]),
+                'OU_P': np.array([ld.P_OU for ld in stoch_loads]).T,
+                'OU_Q': np.array([ld.Q_OU for ld in stoch_loads]).T,
+                'stoch_load_names': [ld.load.loc_name for ld in stoch_loads],
+                'stoch_load_P': [ld.load.plini for ld in stoch_loads],
+                'stoch_load_Q': [ld.load.qlini for ld in stoch_loads],
                 'inertia': Htot,
                 'energy': Etot,
                 'momentum': Mtot,
@@ -847,11 +855,10 @@ def run_tran():
                 'attributes': attributes,
                 'device_names': device_names,
                 'ref_SMs': ref_SMs}
-    
         np.savez_compressed(outfile, **blob)
 
     except Exception as inst:
-        print('Failed to run transient simulation:')
+        sys.stdout.write('Failed to run transient simulation: ')
         print(inst)
  
     for load in stoch_loads:
