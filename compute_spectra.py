@@ -433,7 +433,7 @@ if __name__ == '__main__':
     Htot = data['inertia']
     Etot = data['energy']
     Mtot = data['momentum']
-    out = {'A': A, 'F': F, 'TF': TF, 'OUT': np.abs(OUT), 'var_names': var_names, 'SM_names': SM_names,
+    out = {'A': A, 'F': F, 'TF': TF, 'OUT': OUT, 'var_names': var_names, 'SM_names': SM_names,
            'static_gen_names': static_gen_names, 'bus_names': bus_names, 'load_names': load_names,
            'Htot': Htot, 'Etot': Etot, 'Mtot': Mtot, 'H': H, 'S': S, 'P': P, 'Q': Q,
            'PF': data['PF_without_slack'], 'bus_equiv_terms': data['bus_equiv_terms'],

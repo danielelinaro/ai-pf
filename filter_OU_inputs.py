@@ -84,8 +84,10 @@ def usage(progname, exit_code=None):
 if __name__ == '__main__':
 
     progname = os.path.basename(sys.argv[0])
-    SM_info_fname = 'V2020_Rete_Sardegna_2021_06_03cr_SM_info.json'
-    SM_info = json.load(open(SM_info_fname, 'r'))
+    from glob import glob
+    SM_info = {}
+    for f in glob('*_SM_info.json'):
+        SM_info.update(json.load(open(f, 'r')))
 
     # default values
     data_file = None

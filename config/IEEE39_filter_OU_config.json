@@ -1,0 +1,16 @@
+{
+    "load_names": [
+	"Load_03"
+    ],
+    "var_names": [
+	"Grid-G_01.ElmSym.speed",
+	"Grid-Bus_03.ElmTerm.ur",
+	"Grid-Bus_03.ElmTerm.ui",
+	"Grid-Bus_04.ElmTerm.ur",
+	"Grid-Bus_04.ElmTerm.ui"
+    ],
+    "seed": 1983,
+    "tend": 3600,
+    "sampling_rate": 200,
+    "block_dur": 3600
+}

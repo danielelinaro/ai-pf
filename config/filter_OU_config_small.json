@@ -11,7 +11,7 @@
     ],
     "var_names": "var_names_41920_small.json",
     "seed": 1983,
-    "tend": 3600,
+    "tend": 600,
     "sampling_rate": 200,
-    "block_dur": 3600
+    "block_dur": 600
 }
