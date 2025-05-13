@@ -748,13 +748,23 @@ def combine_output_spectra(output_spectra, input_names, output_names, load_names
     N_samples = output_spectra.shape[0]
     assert freq.size == N_samples
     spectra = np.zeros((N_outputs,N_samples))
-    inputs_idx = [load_names_L.index(input_name) for input_name in input_names]
+    idx_inputs = [load_names_L.index(input_name) for input_name in input_names]
     for i in range(N_outputs):
         if var_types[i] in ('m:ur','m:ui','s:xspeed'):
-            output_idx = var_names_L.index(output_names[i])
-            spectra[i,:] = add_spectra(output_spectra[:,inputs_idx,output_idx])
+            idx_output = var_names_L.index(output_names[i])
+            spectra[i,:] = add_spectra(output_spectra[:, idx_inputs, idx_output])
         elif var_types[i] == 'U':
-            raise NotImplementedError('Not implemented yet')
+            tmp = '.'.join(output_names[i].split('.')[:-1])
+            idx_ur = var_names_L.index(tmp + '.ur')
+            idx_ui = var_names_L.index(tmp + '.ui')
+            bus_name = output_names[i].split('.')[0].split('-')[-1]
+            ur,ui = PF['buses'][bus_name]['ur'], PF['buses'][bus_name]['ui']
+            if ur == 0:
+                print('{}: ur,ui = ({:g},{:g})'.format(output_names[i], ur, ui))
+                continue
+            coeff_ur,coeff_ui = np.array([ur, ui]) / np.sqrt(ur**2 + ui**2)
+            tmp = coeff_ur * output_spectra[:, idx_inputs, idx_ur] + coeff_ui * output_spectra[:, idx_inputs, idx_ui]
+            spectra[i,:] = add_spectra(tmp)
         elif var_types[i] in ('m:fe', 'theta', 'omega'):
             raise NotImplementedError('Not implemented yet')
     return spectra

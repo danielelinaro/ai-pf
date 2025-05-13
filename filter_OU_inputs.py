@@ -17,22 +17,9 @@ import tables
 from tqdm import tqdm
 iter_fun = lambda it: tqdm(it, ascii=True, ncols=70)
 
-import matplotlib
-import matplotlib.pyplot as plt
-from matplotlib.ticker import FixedLocator, NullLocator, FixedFormatter
-fontsize = 9
-lw = 0.75
-matplotlib.rc('font', **{'family': 'Arial', 'size': fontsize})
-matplotlib.rc('axes', **{'linewidth': 0.75, 'labelsize': fontsize})
-matplotlib.rc('xtick', **{'labelsize': fontsize})
-matplotlib.rc('ytick', **{'labelsize': fontsize})
-matplotlib.rc('xtick.major', **{'width': lw, 'size':3})
-matplotlib.rc('ytick.major', **{'width': lw, 'size':3})
-matplotlib.rc('ytick.minor', **{'width': lw, 'size':1.5})
 
-import seaborn as sns
+__all__ = ['run_vf', 'run_welch']
 
-progname = os.path.basename(sys.argv[0])
 
 def run_vf(X, F, n_poles, n_iter=4, weights=None, poles_guess=None, do_plot=False):
     """
@@ -85,21 +72,20 @@ def run_welch(x, dt, window, onesided):
     return freq, P, np.sqrt(P)
 
 
-def usage(exit_code=None):
+def usage(progname, exit_code=None):
     print(f'usage: {progname} [-h | --help] [--data-file <fname>] [--tau <value>]')
     prefix = '       ' + ' ' * (len(progname)+1)
-    print(prefix + '[-o | --outfile <value>] [-s | --suffix <value>] [--no-plot]')
+    print(prefix + '[-o | --outfile <value>] [-s | --suffix <value>]')
     print(prefix + '[-f | --force] [--dB <10|20>] [--tend <value>] config_file')
     if exit_code is not None:
         sys.exit(exit_code)
 
 
-SM_info_fname = 'V2020_Rete_Sardegna_2021_06_03cr_SM_info.json'
-SM_info = json.load(open(SM_info_fname, 'r'))
-
 if __name__ == '__main__':
-    from time import time as TIME
-    tstart = TIME()
+
+    progname = os.path.basename(sys.argv[0])
+    SM_info_fname = 'V2020_Rete_Sardegna_2021_06_03cr_SM_info.json'
+    SM_info = json.load(open(SM_info_fname, 'r'))
 
     # default values
     data_file = None
@@ -109,14 +95,13 @@ if __name__ == '__main__':
     suffix = None
     tend = None
     dB = 10
-    do_plots = True
 
     i = 1
     N_args = len(sys.argv)
     while i < N_args:
         arg = sys.argv[i]
         if arg in ('-h', '--help'):
-            usage(0)
+            usage(progname, 0)
         elif arg == '--data-file':
             i += 1
             data_file = sys.argv[i]
@@ -142,8 +127,6 @@ if __name__ == '__main__':
             if dB not in (10,20):
                 print(f'{progname}: dB value must be either 10 or 20.')
                 sys.exit(1)
-        elif arg == '--no-plot':
-            do_plots = False
         elif arg[0] == '-':
             print(f'{progname}: unknown option `{arg}`.')
             sys.exit(1)
@@ -207,10 +190,7 @@ if __name__ == '__main__':
     vars_idx = []
     for name in var_names:
         idx, = np.where(all_var_names == name)
-        if len(idx) != 1:
-            print(f'{name}: no such variable.')
-            import ipdb
-            ipdb.set_trace()
+        assert len(idx) == 1, f'{name}: no such variable.'
         vars_idx.append(idx[0])
 
     vars_idx = np.array(vars_idx)
@@ -242,16 +222,12 @@ if __name__ == '__main__':
     rs = RandomState(MT19937(SeedSequence(seed)))
     OU_seeds = rs.randint(0, 100000, size=N_loads)
     rs = [RandomState(MT19937(SeedSequence(seed))) for seed in OU_seeds]
-    sys.stdout.write('Building the OU stimuli... ')
-    sys.stdout.flush()
-    t0 = TIME()
+    print('Building the OU stimuli...')
     U = np.zeros((N_loads, N_samples))
-    for i in range(N_loads):
+    for i in iter_fun(range(N_loads)):
         U[i,:] = OU_2(dt, alpha[i], mu[i], c[i], N_samples, random_state=rs[i])
-    sys.stdout.write('done in {:.3f} sec.\n'.format(TIME()-t0))
 
     print('(Vector) fitting the TFs...')
-    t0 = TIME()
     # data['TF'][:,loads_idx,vars_idx] does not return what you would expect...
     # we need to do this:
     J,K = np.meshgrid(loads_idx, vars_idx, indexing='ij')
@@ -273,10 +249,8 @@ if __name__ == '__main__':
                     break
             N_poles[i,j] = n+1
             systems[i].append(lti(SER['A'],SER['B'],SER['C'],SER['D']))
-    print('Fitting done in {:.3f} sec.'.format(TIME()-t0))
 
     print('Computing the output time series...')
-    t0 = TIME()
     Y = np.zeros((N_vars,N_samples))
     for i in iter_fun(range(N_vars)):
         y_all = []
@@ -285,20 +259,14 @@ if __name__ == '__main__':
             assert y.imag.max() < 1e-10
             y_all.append(y.real)
         Y[i,:] = np.sum(y_all, axis=0)
-    print('Output time series computed in {:.3f} sec.'.format(TIME()-t0))
 
-    sys.stdout.write('Computing the power spectral densities of the outputs... ')
-    sys.stdout.flush()
-    t0 = TIME()
+    print('Computing the power spectral densities of the outputs...')
     window = min(int(200/dt), N_samples//2)
     onesided = True
     freq,P_Y,abs_Y = run_welch(Y, dt, window, onesided)
     _,P_U,abs_U = run_welch(U, dt, window, onesided)
-    sys.stdout.write('done in {:.3f} sec.\n'.format(TIME()-t0))
 
-    sys.stdout.write('Combining the output spectra... ')
-    sys.stdout.flush()
-    t0 = TIME()
+    print('Combining the output spectra...')
     OUT = data['OUT']
     PF = data['PF'].item()
     F0 = 50.
@@ -307,6 +275,10 @@ if __name__ == '__main__':
         _,typ = os.path.splitext(var_names[i])
         if typ == '.ur':
             var_types.append('m:ur')
+        elif typ == '.ui':
+            var_types.append('m:ui')
+        elif typ == '.u':
+            var_types.append('U')
         elif typ == '.speed':
             var_types.append('s:xspeed')
         elif typ == '.fe':
@@ -316,68 +288,77 @@ if __name__ == '__main__':
     OUT_multi =  combine_output_spectra(OUT, load_names, var_names, all_load_names,
                                         all_var_names, var_types, F, PF,
                                         data['bus_equiv_terms'].item(), ref_freq=F0)
-    sys.stdout.write('done in {:.3f} sec.\n'.format(TIME()-t0))
+    
+    print('Plotting the results...')
+    import seaborn as sns
+    import matplotlib
+    import matplotlib.pyplot as plt
+    from matplotlib.ticker import FixedLocator, NullLocator, FixedFormatter
+    fontsize = 9
+    lw = 0.75
+    matplotlib.rc('font', **{'family': 'Arial', 'size': fontsize})
+    matplotlib.rc('axes', **{'linewidth': 0.75, 'labelsize': fontsize})
+    matplotlib.rc('xtick', **{'labelsize': fontsize})
+    matplotlib.rc('ytick', **{'labelsize': fontsize})
+    matplotlib.rc('xtick.major', **{'width': lw, 'size':3})
+    matplotlib.rc('ytick.major', **{'width': lw, 'size':3})
+    matplotlib.rc('ytick.minor', **{'width': lw, 'size':1.5})
 
-    if do_plots:
-        sys.stdout.write('Plotting the results... ')
-        sys.stdout.flush()
-        t0 = TIME()
-        use_dBs = True
+    use_dBs = True
+    if use_dBs:
+        abs_Y = dB*np.log10(abs_Y)
+        abs_U = dB*np.log10(abs_U)
+        ylbl = r'|Y(j$\omega$)| [dB{}]'.format(dB)
+    else:
+        ylbl = r'|Y(j$\omega$)|'
+    black = .1 + np.zeros(3)
+    gray = .5 + np.zeros(3)
+    width,height = 2.5,2
+    rows,cols = 2,N_vars+1
+    fig,ax = plt.subplots(rows, cols, figsize=(cols*width, rows*height),
+                          squeeze=False, sharex=True)
+    a = ax[1,0]
+    ax[0,0].set_visible(False)
+    for i in range(N_loads):
+        P_U_theor = (c[i]/alpha[i])**2 / (1 + (2*np.pi*F/alpha[i])**2)
+        abs_U_theor = np.sqrt(P_U_theor)
         if use_dBs:
-            abs_Y = dB*np.log10(abs_Y)
-            abs_U = dB*np.log10(abs_U)
-            ylbl = r'|Y(j$\omega$)| [dB{}]'.format(dB)
-        else:
-            ylbl = r'|Y(j$\omega$)|'
-        black = .1 + np.zeros(3)
-        gray = .5 + np.zeros(3)
-        width,height = 2.5,2
-        rows,cols = 2,N_vars+1
-        fig,ax = plt.subplots(rows, cols, figsize=(cols*width, rows*height),
-                              squeeze=False, sharex=True)
-        a = ax[1,0]
-        ax[0,0].set_visible(False)
-        for i in range(N_loads):
-            P_U_theor = (c[i]/alpha[i])**2 / (1 + (2*np.pi*F/alpha[i])**2)
-            abs_U_theor = np.sqrt(P_U_theor)
+            abs_U_theor = dB*np.log10(abs_U_theor)
+        a.plot(freq, abs_U[i,:], color=gray, lw=0.75)
+        a.plot(F, abs_U_theor, color='tab:red', lw=1)
+    a.set_xlabel('Frequency [Hz]')
+    a.set_ylabel(ylbl)
+    a.set_title('Inputs')
+
+    for i in range(N_vars):
+        for j in range(N_loads):
+            tf = np.abs(TF[:,j,i])
+            tf_fit = np.abs(fit[i,j,:])
             if use_dBs:
-                abs_U_theor = dB*np.log10(abs_U_theor)
-            a.plot(freq, abs_U[i,:], color=gray, lw=0.75)
-            a.plot(F, abs_U_theor, color='tab:red', lw=1)
+                tf,tf_fit = dB*np.log10(tf),dB*np.log10(tf_fit)
+            ax[0,i+1].plot(F, tf, color=black, lw=2)
+            ax[0,i+1].plot(F, tf_fit, color='tab:red', lw=0.75)
+
+        out = np.abs(OUT_multi[i,:])
+        if use_dBs:
+            out = dB*np.log10(out)
+        ax[1,i+1].plot(freq, abs_Y[i,:], color=gray, lw=0.75)
+        ax[1,i+1].plot(F, out, color='tab:red', lw=1)
+
+        for a in ax[:,i+1]:
+            a.set_xscale('log')
+
+        title = var_names[i].split('-')[-1].split('.')[0].split('__')[0]
+        title += '.' + '.'.join(var_names[i].split('.')[-2:])
+        ax[0,i+1].set_title(title, fontsize=8)
+
+    for a in ax[-1,1:]:
         a.set_xlabel('Frequency [Hz]')
+    for a in ax[:,1]:
         a.set_ylabel(ylbl)
-        a.set_title('Inputs')
-
-        for i in range(N_vars):
-            for j in range(N_loads):
-                tf = np.abs(TF[:,j,i])
-                tf_fit = np.abs(fit[i,j,:])
-                if use_dBs:
-                    tf,tf_fit = dB*np.log10(tf),dB*np.log10(tf_fit)
-                ax[0,i+1].plot(F, tf, color=black, lw=2)
-                ax[0,i+1].plot(F, tf_fit, color='tab:red', lw=0.75)
-
-            out = np.abs(OUT_multi[i,:])
-            if use_dBs:
-                out = dB*np.log10(out)
-            ax[1,i+1].plot(freq, abs_Y[i,:], color=gray, lw=0.75)
-            ax[1,i+1].plot(F, out, color='tab:red', lw=1)
-
-            for a in ax[:,i+1]:
-                a.set_xscale('log')
-
-            title = var_names[i].split('-')[-1].split('.')[0].split('__')[0]
-            title += '.' + '.'.join(var_names[i].split('.')[-2:])
-            ax[0,i+1].set_title(title, fontsize=8)
-
-        for a in ax[-1,1:]:
-            a.set_xlabel('Frequency [Hz]')
-        for a in ax[:,1]:
-            a.set_ylabel(ylbl)
-        sns.despine()
-        fig.tight_layout()
-        plt.savefig(os.path.join(outdir, os.path.splitext(outfile)[0]+'.pdf'))
-        sys.stdout.write('done in {:.3f} sec.\n'.format(TIME()-t0))
+    sns.despine()
+    fig.tight_layout()
+    plt.savefig(os.path.join(outdir, os.path.splitext(outfile)[0]+'.pdf'))
 
     block_dur = config['block_dur']
     N_samples_per_block = int(block_dur / dt)
@@ -388,6 +369,7 @@ if __name__ == '__main__':
     generator_IDs = [k for k in PF['SMs'] if k not in ('Ptot','Qtot')]
     N_generators = len(generator_IDs)
 
+    from time import time as TIME
     sys.stdout.write('Saving data to {}... '.format(os.path.join(outdir,outfile)))
     sys.stdout.flush()
     t0 = TIME()
@@ -440,7 +422,6 @@ if __name__ == '__main__':
 
 
     fid.close()
-    sys.stdout.write('done in {:.3f} sec.\n'.format(TIME()-t0))
 
-    tend = TIME()
-    print('Elapsed time: {:.3f} sec.'.format(tend-tstart))
+    t1 = TIME()
+    print(f'done in {t1-t0:.1f} sec.')
