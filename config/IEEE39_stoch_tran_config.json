@@ -15,7 +15,7 @@
 	"match_gen_cons": false,
 	"P_match": 1,
     "stoch_loads": [
-		"Load_03"
+		"Load_04"
 	],
 	"limits": {"P": [5.0, 1e3], "Q": [5.0, 1e3]},
 	"sigma": {"P": 0.01, "Q": 0.0},
@@ -28,15 +28,16 @@
 			"devs_name": "gen"
 		},
 		"ElmTerm": {
-			"names": ["Bus_03", "Bus_04", "Bus_39"],
-			"vars": ["m:ur", "m:ui", "m:u", "m:fe"],
+			"names": ["Bus_03", "Bus_04"],
+			"vars": ["m:ur", "m:ui", "m:u", "m:U", "m:phiu", "m:fe"],
 			"attrs": ["loc_name", "uknom", "unknom"],
 			"devs_name": "bus"
 		},
 		"ElmLod": {
 			"names": ["Load_03", "Load_04"],
-			"vars": ["m:Psum:bus1", "m:Qsum:bus1", "m:P:bus1:A", "m:Q:bus1:A",
-					"m:ur:bus1:A", "m:ui:bus1:A", "m:ir:bus1:A", "m:ii:bus1:A"],
+			"vars": ["m:Psum:bus1", "m:Qsum:bus1",
+					 "m:ir:bus1", "m:ii:bus1",
+					 "m:I:bus1", "m:phii:bus1"],
 			"attrs": ["loc_name", "plini", "qlini"],
 			"devs_name": "load"
 		}
