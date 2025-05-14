@@ -15,7 +15,7 @@
     "match_gen_cons": false,
 	"P_match": 1,
 	"stoch_loads": [
-		"LD1"
+		"LD1", "LD2"
 	],
 	"limits": {"P": [1.0, 100], "Q": [-100.0, 100]},
 	"sigma": {"P": 0.01, "Q": 0.0},
