@@ -759,7 +759,7 @@ def combine_output_spectra(output_spectra, input_names, output_names, load_names
             idx_ui = var_names_L.index(tmp + '.ui')
             bus_name = output_names[i].split('.')[0].split('-')[-1]
             ur,ui = PF['buses'][bus_name]['ur'], PF['buses'][bus_name]['ui']
-            assert ur != 0, '{}: ur,ui = ({:g},{:g})'.format(output_names[i], ur, ui))
+            assert ur != 0, '{}: ur,ui = ({:g},{:g})'.format(output_names[i], ur, ui)
             coeff_ur,coeff_ui = np.array([ur, ui]) / np.sqrt(ur**2 + ui**2)
             tmp = coeff_ur * output_spectra[:, idx_inputs, idx_ur] + coeff_ui * output_spectra[:, idx_inputs, idx_ui]
             spectra[i,:] = add_spectra(tmp)
@@ -769,7 +769,7 @@ def combine_output_spectra(output_spectra, input_names, output_names, load_names
             idx_ui = var_names_L.index(tmp + '.ui')
             bus_name = output_names[i].split('.')[0].split('-')[-1]
             ur,ui = PF['buses'][bus_name]['ur'], PF['buses'][bus_name]['ui']
-            assert ur != 0, '{}: ur,ui = ({:g},{:g})'.format(output_names[i], ur, ui))
+            assert ur != 0, '{}: ur,ui = ({:g},{:g})'.format(output_names[i], ur, ui)
             coeff_ur = -ui / ur**2 / (1 + (ui / ur)**2)
             coeff_ui =  1 / (ur * (1 + (ui/ur) **2))
             tmp = coeff_ur * output_spectra[:, idx_inputs, idx_ur] + coeff_ui * output_spectra[:, idx_inputs, idx_ui]
