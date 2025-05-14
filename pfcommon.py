@@ -759,14 +759,30 @@ def combine_output_spectra(output_spectra, input_names, output_names, load_names
             idx_ui = var_names_L.index(tmp + '.ui')
             bus_name = output_names[i].split('.')[0].split('-')[-1]
             ur,ui = PF['buses'][bus_name]['ur'], PF['buses'][bus_name]['ui']
-            if ur == 0:
-                print('{}: ur,ui = ({:g},{:g})'.format(output_names[i], ur, ui))
-                continue
+            assert ur != 0, '{}: ur,ui = ({:g},{:g})'.format(output_names[i], ur, ui))
             coeff_ur,coeff_ui = np.array([ur, ui]) / np.sqrt(ur**2 + ui**2)
             tmp = coeff_ur * output_spectra[:, idx_inputs, idx_ur] + coeff_ui * output_spectra[:, idx_inputs, idx_ui]
             spectra[i,:] = add_spectra(tmp)
         elif var_types[i] in ('m:fe', 'theta', 'omega'):
-            raise NotImplementedError('Not implemented yet')
+            tmp = '.'.join(output_names[i].split('.')[:-1])
+            idx_ur = var_names_L.index(tmp + '.ur')
+            idx_ui = var_names_L.index(tmp + '.ui')
+            bus_name = output_names[i].split('.')[0].split('-')[-1]
+            ur,ui = PF['buses'][bus_name]['ur'], PF['buses'][bus_name]['ui']
+            assert ur != 0, '{}: ur,ui = ({:g},{:g})'.format(output_names[i], ur, ui))
+            coeff_ur = -ui / ur**2 / (1 + (ui / ur)**2)
+            coeff_ui =  1 / (ur * (1 + (ui/ur) **2))
+            tmp = coeff_ur * output_spectra[:, idx_inputs, idx_ur] + coeff_ui * output_spectra[:, idx_inputs, idx_ui]
+            if var_types[i] in ('m:fe','omega'):
+                freq_2d = np.tile(freq.squeeze()[:, np.newaxis], [1, len(idx_inputs)])
+                tmp = tmp * 1j * 2 * np.pi * freq_2d # Δω = jωΔθ
+                if var_types[i] == 'm:fe':
+                    ref_SM_idx = [i for i, name in enumerate(var_names) if ref_SM_name + '.ElmSym.speed' in name]
+                    assert len(ref_SM_idx) == 1, f"Cannot find variable `speed` of object '{ref_SM_name}'"
+                    ref_SM_idx = ref_SM_idx[0]
+                    tmp /= 2 * np.pi * ref_freq # !!! scaling factor !!!
+                    tmp += output_spectra[:, idx_inputs, ref_SM_idx]
+            spectra[i,:] = add_spectra(tmp)
     return spectra
 
 

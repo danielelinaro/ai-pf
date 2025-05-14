@@ -289,7 +289,8 @@ if __name__ == '__main__':
             raise Exception(f"Unknown variable type '{typ[1:]}'")
     OUT_multi =  combine_output_spectra(OUT, load_names, var_names, all_load_names,
                                         all_var_names, var_types, F, PF,
-                                        data['bus_equiv_terms'].item(), ref_freq=F0)
+                                        data['bus_equiv_terms'].item(), ref_freq=F0,
+                                        ref_SM_name=data['ref_SM_name'].item())
     
     print('Plotting the results...')
     import seaborn as sns
