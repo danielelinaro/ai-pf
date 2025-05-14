@@ -4,10 +4,13 @@
     ],
     "var_names": [
 	"Grid-G_01.ElmSym.speed",
+	"Grid-G_02.ElmSym.speed",
 	"Grid-Bus_03.ElmTerm.ur",
 	"Grid-Bus_03.ElmTerm.ui",
 	"Grid-Bus_04.ElmTerm.ur",
-	"Grid-Bus_04.ElmTerm.ui"
+	"Grid-Bus_04.ElmTerm.ui",
+	"Grid-Bus_03.ElmTerm.fe",
+	"Grid-Bus_04.ElmTerm.fe"
     ],
     "seed": 1983,
     "tend": 3600,
