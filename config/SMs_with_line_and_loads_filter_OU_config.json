@@ -5,12 +5,19 @@
     "var_names": [
 	"Grid-G1.ElmSym.speed",
 	"Grid-G2.ElmSym.speed",
+	"Grid-G2.ElmSym.phi",
 	"Grid-Bus1.ElmTerm.ur",
 	"Grid-Bus1.ElmTerm.ui",
 	"Grid-Bus2.ElmTerm.ur",
 	"Grid-Bus2.ElmTerm.ui",
 	"Grid-Bus1.ElmTerm.fe",
-	"Grid-Bus2.ElmTerm.fe"
+	"Grid-Bus2.ElmTerm.fe",
+    "Grid-LD1.ElmLod.xu",
+    "Grid-LD2.ElmLod.xu",
+    "Grid-LD1.ElmLod.ir",
+    "Grid-LD1.ElmLod.ii",
+    "Grid-LD2.ElmLod.ir",
+    "Grid-LD2.ElmLod.ii"
     ],
     "seed": 1983,
     "tend": 3600,
