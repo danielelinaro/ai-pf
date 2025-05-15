@@ -728,7 +728,7 @@ def combine_output_spectra(output_spectra, input_names, output_names, load_names
                      computed
          load_names: the N load names for which individual TFs are available
           var_names: the L variable names for which individual TFs are available
-          var_types: a list of L variable types (m:ur, s:xspeed, ...)
+          var_types: a list of L variable types (ur, speed, ...)
                freq: the frequencies at which the TFs are sampled
                  PF: the data with the power-flow solution of the power network
     bus_equiv_terms: ...
@@ -750,10 +750,10 @@ def combine_output_spectra(output_spectra, input_names, output_names, load_names
     spectra = np.zeros((N_outputs,N_samples))
     idx_inputs = [load_names_L.index(input_name) for input_name in input_names]
     for i in range(N_outputs):
-        if var_types[i] in ('m:ur','m:ui','s:xspeed'):
+        if output_names[i] in var_names_L:
             idx_output = var_names_L.index(output_names[i])
             spectra[i,:] = add_spectra(output_spectra[:, idx_inputs, idx_output])
-        elif var_types[i] == 'U':
+        elif var_types[i] == 'u':
             tmp = '.'.join(output_names[i].split('.')[:-1])
             idx_ur = var_names_L.index(tmp + '.ur')
             idx_ui = var_names_L.index(tmp + '.ui')
@@ -763,7 +763,7 @@ def combine_output_spectra(output_spectra, input_names, output_names, load_names
             coeff_ur,coeff_ui = np.array([ur, ui]) / np.sqrt(ur**2 + ui**2)
             tmp = coeff_ur * output_spectra[:, idx_inputs, idx_ur] + coeff_ui * output_spectra[:, idx_inputs, idx_ui]
             spectra[i,:] = add_spectra(tmp)
-        elif var_types[i] in ('m:fe', 'theta', 'omega'):
+        elif var_types[i] in ('fe', 'theta', 'omega'):
             tmp = '.'.join(output_names[i].split('.')[:-1])
             idx_ur = var_names_L.index(tmp + '.ur')
             idx_ui = var_names_L.index(tmp + '.ui')
@@ -773,14 +773,16 @@ def combine_output_spectra(output_spectra, input_names, output_names, load_names
             coeff_ur = -ui / ur**2 / (1 + (ui / ur)**2)
             coeff_ui =  1 / (ur * (1 + (ui/ur) **2))
             tmp = coeff_ur * output_spectra[:, idx_inputs, idx_ur] + coeff_ui * output_spectra[:, idx_inputs, idx_ui]
-            if var_types[i] in ('m:fe','omega'):
+            if var_types[i] in ('fe','omega'):
                 freq_2d = np.tile(freq.squeeze()[:, np.newaxis], [1, len(idx_inputs)])
                 tmp = tmp * 1j * 2 * np.pi * freq_2d # Δω = jωΔθ
-                if var_types[i] == 'm:fe':
+                if var_types[i] == 'fe':
                     ref_SM_idx = [i for i, name in enumerate(var_names) if ref_SM_name + '.ElmSym.speed' in name]
                     assert len(ref_SM_idx) == 1, f"Cannot find variable `speed` of object '{ref_SM_name}'"
                     ref_SM_idx = ref_SM_idx[0]
                     tmp /= 2 * np.pi * ref_freq # !!! scaling factor !!!
                     tmp += output_spectra[:, idx_inputs, ref_SM_idx]
             spectra[i,:] = add_spectra(tmp)
+        else:
+            print(f"Unknown variable type '{var_types[i]}'.")
     return spectra

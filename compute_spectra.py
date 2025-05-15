@@ -39,7 +39,7 @@ def save_to_mat(mat_file, data_dict=None, npz_data_file=None):
 if __name__ == '__main__':
     from time import time as TIME
     tstart = TIME()
-    
+
     # default values    
     fmin,fmax = -6., 2.
     steps_per_decade = 100
@@ -209,6 +209,9 @@ if __name__ == '__main__':
     else:
         from scipy.linalg import inv
 
+    import platform
+    use_at_matmul = not 'arm64' in platform.platform()
+
     N_freq = int(fmax - fmin) * steps_per_decade + 1
     F = np.logspace(fmin, fmax, N_freq)    
 
@@ -242,8 +245,8 @@ if __name__ == '__main__':
     Jgx = J[N_state_vars:, :N_state_vars]
     Jgy = J[N_state_vars:, N_state_vars:]
     Jgy_inv = inv(Jgy)
-    Atmp = Jfx - Jfy @ Jgy_inv @ Jgx
-    assert np.all(np.abs(A-Atmp) < 1e-8)
+    Atmp = Jfx - (Jfy @ Jgy_inv @ Jgx if use_at_matmul else np.dot(np.dot(Jfy, Jgy_inv), Jgx))
+    assert np.allclose(A, Atmp)
 
     load_buses = data['load_buses'].item()
     all_load_names = []
@@ -270,7 +273,7 @@ if __name__ == '__main__':
             try_append(all_sigmaP, sigmaP, i)
             try_append(all_sigmaQ, sigmaQ, i)
     load_names = all_load_names
-    dP,dQ,sigmaP,sigmaQ = all_dP,all_dQ,all_sigmaP,all_sigmaQ
+    dP, dQ, sigmaP, sigmaQ = all_dP, all_dQ, all_sigmaP, all_sigmaQ
     def fix_len(lst1, lst2):
         if len(lst1) == 1 and len(lst2) > 1:
             return lst1*len(lst2)
@@ -280,9 +283,9 @@ if __name__ == '__main__':
     sigmaP = fix_len(sigmaP, load_names)
     sigmaQ = fix_len(sigmaQ, load_names)
 
-    PF_loads = data['PF_without_slack'].item()['loads']
+    PF_loads = PF['loads']
     idx = []
-    mu,c,alpha = [],[],[]
+    mu, c, alpha = [], [], []
     full_element_names = list(vars_idx.keys())
     element_names = list(map(lambda s: s.split('.')[0].split('-')[-1], full_element_names))
     bus_equiv_terms = data['bus_equiv_terms'].item()
@@ -332,36 +335,36 @@ if __name__ == '__main__':
             alpha.append(1/tau)
 
     idx = np.array(idx) - N_state_vars
-    mu,c,alpha = np.array(mu),np.array(c),np.array(alpha)
-    B = -Jfy @ Jgy_inv
-    C = -Jgy_inv @ Jgx
+    mu, c, alpha = np.array(mu), np.array(c), np.array(alpha)
+    B = - (Jfy @ Jgy_inv if use_at_matmul else np.dot(Jfy, Jgy_inv))
+    C = - (Jgy_inv @ Jgx if use_at_matmul else np.dot(Jgy_inv, Jgx))
     
     N_inputs = c.size
     I = np.eye(N_state_vars)
     M = np.zeros((N_freq, N_state_vars, N_state_vars), dtype=complex)
     # the transfer functions are complex numbers
-    TF  = np.zeros((N_freq, N_inputs, N_state_vars+N_algebraic_vars), dtype=complex)
+    TF  = np.zeros((N_freq, N_inputs, N_state_vars + N_algebraic_vars), dtype=complex)
     # the absolute value of the spectra of the outputs are real numbers:
     # we will take the abs at the end of the function
-    OUT = np.zeros((N_freq, N_inputs, N_state_vars+N_algebraic_vars), dtype=complex)
+    OUT = np.zeros_like(TF)
 
     for i in tqdm(range(N_freq), ascii=True, ncols=70):
-        M[i,:,:] = inv(-A + 1j*2*np.pi*F[i]*I)
-        MxB = M[i,:,:] @ B
-        PSD = np.sqrt((c/alpha)**2 / (1 + (2*np.pi*F[i]/alpha)**2))
-        for j,psd in enumerate(PSD):
+        M[i, :, :] = inv(-A + 1j * 2 * np.pi * F[i] * I)
+        MxB = M[i, :, :] @ B if use_at_matmul else np.dot(M[i, :, :], B)
+        PSD = np.sqrt((c / alpha)**2 / (1 + (2 * np.pi * F[i] / alpha)**2))
+        for j, psd in enumerate(PSD):
             v = np.zeros(N_algebraic_vars, dtype=float)
             v[idx[j]] = 1
-            tmp = MxB @ v
-            TF[i,j,:N_state_vars] = tmp
-            TF[i,j,N_state_vars:] = C @ tmp - Jgy_inv @ v
+            tmp = MxB @ v if use_at_matmul else np.dot(MxB, v)
+            TF[i, j, :N_state_vars] = tmp
+            TF[i, j, N_state_vars:] = C @ tmp - Jgy_inv @ v if use_at_matmul else np.dot(C, tmp) - np.dot(Jgy_inv, v)
             v[idx[j]] = psd
             tmp = MxB @ v
-            OUT[i,j,:N_state_vars] = tmp
-            OUT[i,j,N_state_vars:] = C @ tmp - Jgy_inv @ v
-    TF[TF==0] = 1e-20 * (1+1j)
-    OUT[OUT==0] = 1e-20 * (1+1j)
-    var_names,idx = [],[]
+            OUT[i, j, :N_state_vars] = tmp
+            OUT[i, j, N_state_vars:] = C @ tmp - Jgy_inv @ v if use_at_matmul else np.dot(C, tmp) - np.dot(Jgy_inv, v)
+    TF[TF == 0] = 1e-20 * (1+1j)
+    OUT[OUT == 0] = 1e-20 * (1+1j)
+    var_names, idx = [], []
     for k1,D in vars_idx.items():
         for k2,V in D.items():
             k = k1 + '.' + k2
@@ -390,14 +393,14 @@ if __name__ == '__main__':
         TF2  = np.zeros(( TF.shape[0],  TF.shape[1], N_buses), dtype=complex)
         OUT2 = np.zeros((OUT.shape[0], OUT.shape[1], N_buses), dtype=complex)
 
-        def do_calc(X,coeffs,F,F0,ref):
+        def do_calc(X, coeffs, F, F0, ref):
             ret = np.zeros(X.shape[:2], dtype=complex)
             N_TF = X.shape[1]
             for j in range(N_TF):
-                ret[:,j] = coeffs[0]*X[:,j,0] + coeffs[1]*X[:,j,1]
-                ret[:,j] *= 1j*2*np.pi*F # Δω = jωΔθ
-                ret[:,j] /= 2*np.pi*F0 # !!! scaling factor !!!
-                ret[:,j] += ref[:,j]
+                ret[:, j] = coeffs[0] * X[:, j, 0] + coeffs[1] * X[:, j, 1]
+                ret[:, j] *= 1j * 2 * np.pi * F # Δω = jωΔθ
+                ret[:, j] /= 2 * np.pi * F0 # !!! scaling factor !!!
+                ret[:, j] += ref[:, j]
             return ret
 
         for i in tqdm(range(N_buses), ascii=True, ncols=70):
@@ -406,18 +409,18 @@ if __name__ == '__main__':
             ### FIX THIS IN THE POWER FLOW LABELS
             name = bus_names[i].split('-')[-1].split('.')[0]
             if name in PF['buses']:
-                idx = np.array([var_names.index(bus_names[i]+'.ur'),
-                                var_names.index(bus_names[i]+'.ui')])
-                ur,ui = PF['buses'][name]['ur'], PF['buses'][name]['ui']
+                idx = np.array([var_names.index(bus_names[i] + '.ur'),
+                                var_names.index(bus_names[i] + '.ui')])
+                ur, ui = PF['buses'][name]['ur'], PF['buses'][name]['ui']
                 if ur != 0:
-                    coeffs = -ui/ur**2/(1+(ui/ur)**2), 1/(ur*(1+(ui/ur)**2))
+                    coeffs = -ui / ur**2 / (1 + (ui / ur)**2), 1 / (ur * (1 + (ui / ur)**2))
                     ##### is it TF or OUT in the following line?!? #####
                     TF2[:,:,i]  = do_calc( TF[:,:,idx], coeffs, F, F0,  TF[:,:,ref_SM_idx])
                     OUT2[:,:,i] = do_calc(OUT[:,:,idx], coeffs, F, F0, OUT[:,:,ref_SM_idx])
 
-        var_names += [name+'.fe' for name in bus_names]
-        TF  = np.concatenate((TF,TF2), axis=-1)
-        OUT = np.concatenate((OUT,OUT2), axis=-1)
+        var_names += [name + '.fe' for name in bus_names]
+        TF  = np.concatenate((TF, TF2), axis=-1)
+        OUT = np.concatenate((OUT, OUT2), axis=-1)
         assert(len(var_names) == TF.shape[2])
 
     if vars_to_save is not None:

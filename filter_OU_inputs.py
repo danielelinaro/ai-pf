@@ -198,8 +198,11 @@ if __name__ == '__main__':
     vars_idx = np.array(vars_idx)
     N_vars = len(var_names)
 
+    # these are the loads that should be stochastic in this simulation
     load_names = config['load_names']
     N_loads = len(load_names)
+    # these are the loads for which individual TFs were computed by compute_spectra.py:
+    # they are NOT necessarily all the loads that are present in the power network
     all_load_names = data['load_names'].tolist()
     loads_idx = np.array([all_load_names.index(load_name) for load_name in load_names])
     # mean has to be zero because we are simulating small signal fluctuations around the mean
@@ -272,21 +275,7 @@ if __name__ == '__main__':
     OUT = data['OUT']
     PF = data['PF'].item()
     F0 = 50.
-    var_types = []
-    for i in range(N_vars):
-        _,typ = os.path.splitext(var_names[i])
-        if typ == '.ur':
-            var_types.append('m:ur')
-        elif typ == '.ui':
-            var_types.append('m:ui')
-        elif typ == '.u':
-            var_types.append('U')
-        elif typ == '.speed':
-            var_types.append('s:xspeed')
-        elif typ == '.fe':
-            var_types.append('m:fe')
-        else:
-            raise Exception(f"Unknown variable type '{typ[1:]}'")
+    var_types = [os.path.splitext(name)[1][1:] for name in var_names]
     OUT_multi =  combine_output_spectra(OUT, load_names, var_names, all_load_names,
                                         all_var_names, var_types, F, PF,
                                         data['bus_equiv_terms'].item(), ref_freq=F0,
