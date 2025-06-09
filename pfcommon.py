@@ -640,12 +640,10 @@ def print_power_flow(results):
 
 def parse_sparse_matrix_file(filename, sparse=False, one_based_indexes=True):
     from scipy.sparse import csr_matrix
-    data = np.loadtxt(filename)
-    row_ind = np.asarray(data[:,0], dtype=int)
-    col_ind = np.asarray(data[:,1], dtype=int)
+    i, j, vals = np.loadtxt(filename, unpack=True)
     if one_based_indexes:
-        row_ind, col_ind = row_ind-1, col_ind-1
-    M = csr_matrix((data[:,2], (row_ind, col_ind)))
+        i, j = i-1, j-1
+    M = csr_matrix((vals, (i.astype(int), j.astype(int))))
     if not sparse:
         return M.toarray()
     return M
