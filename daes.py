@@ -50,9 +50,6 @@ class resindex1(ida.IDA_RhsFunction):
     def evaluate(self, t, y, ydot, res, userdata):
         w, phi, uBr, uBi, iLr, iLi, iGr, iGi = y
         wdot, phidot = ydot[:2]
-        # without the sqrt(3) coefficient, eqs. 4 & 5 below are not satisfied at the power
-        # flow solution found by PowerFactory
-        den = np.sqrt(3) * (uBr ** 2 + uBi ** 2)
         # parameters of the system
         w_base     = self.power_sys.w_base
         w_ref      = self.power_sys.w_ref
@@ -87,6 +84,9 @@ class resindex1(ida.IDA_RhsFunction):
         psistr = (ut + rstr * it) / (1j * n)                        # [p.u.]
         te = (it.imag * psistr.real - it.real * psistr.imag) / cosn # [p.u.]
         P_load = self.power_sys._compute_P_load(t)
+        # the 3 below is necessary because the P_load + 1j * Q_load is three-phase power,
+        # whereas iLr + 1j * iLi is the line (or phase) current
+        den = uBr ** 2 + uBi ** 2
         # with damping torques
         res[0] = wdot - (tm - te - tdkd - tdpe) / tag * w_base
         # without damping torques
@@ -94,8 +94,8 @@ class resindex1(ida.IDA_RhsFunction):
         res[1] = phidot
         res[2] = iGr - (iLr + Ggnd * uBr)
         res[3] = iGi - (iLi + Ggnd * uBi)
-        res[4] = iLr - (P_load * uBr + Q_load * uBi) / den
-        res[5] = iLi - (-Q_load * uBr + P_load * uBi) / den
+        res[4] = iLr - (P_load / 3 * uBr + Q_load / 3 * uBi) / den
+        res[5] = iLi - (-Q_load / 3 * uBr + P_load / 3 * uBi) / den
         res[6] = uBr + R_gen * iGr - X_gen * iGi - E0 * np.cos(phi)
         res[7] = uBi + X_gen * iGr + R_gen * iGi - E0 * np.sin(phi)
         return 0
@@ -143,12 +143,12 @@ class jacindex1(ida.IDA_JacRhsFunction):
         jac[3,3] = -Ggnd
         jac[3,5] = -1.
         jac[3,7] = 1.
-        den = np.sqrt(3) * (uBr ** 2 + uBi ** 2) ** 2
-        jac[4,2] = -(P_load * (uBi**2 - uBr**2) - 2 * Q_load * uBr * uBi) / den
-        jac[4,3] = -(Q_load * (uBr**2 - uBi**2) - 2 * P_load * uBr * uBi) / den
+        den = (uBr ** 2 + uBi ** 2) ** 2
+        jac[4,2] = -(P_load/3 * (uBi**2 - uBr**2) - 2 * Q_load/3 * uBr * uBi) / den
+        jac[4,3] = -(Q_load/3 * (uBr**2 - uBi**2) - 2 * P_load/3 * uBr * uBi) / den
         jac[4,4] = 1.
-        jac[5,2] = -(Q_load * (uBr**2 - uBi**2) - 2 * P_load * uBr * uBi) / den
-        jac[5,3] = -(P_load * (uBr**2 - uBi**2) - 2 * Q_load * uBr * uBi) / den
+        jac[5,2] = -(Q_load/3 * (uBr**2 - uBi**2) - 2 * P_load/3 * uBr * uBi) / den
+        jac[5,3] = -(P_load/3 * (uBr**2 - uBi**2) - 2 * Q_load/3 * uBr * uBi) / den
         jac[5,5] = 1.
         jac[6,1] = E0 * np.sin(phi)
         jac[6,2] = 1.
