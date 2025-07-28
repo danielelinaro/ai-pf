@@ -88,14 +88,14 @@ class resindex1(ida.IDA_RhsFunction):
         # whereas iLr + 1j * iLi is the line (or phase) current
         den = uBr ** 2 + uBi ** 2
         # with damping torques
-        res[0] = wdot - (tm - te - tdkd - tdpe) / tag * w_base
+        res[0] = (tm - te - tdkd - tdpe) / tag * w_base - wdot
         # without damping torques
-        #res[0] = wdot - (tm - te) / self.tag * self.w_base
-        res[1] = phidot
-        res[2] = iGr - (iLr + Ggnd * uBr)
-        res[3] = iGi - (iLi + Ggnd * uBi)
-        res[4] = iLr - (P_load / 3 * uBr + Q_load / 3 * uBi) / den
-        res[5] = iLi - (-Q_load / 3 * uBr + P_load / 3 * uBi) / den
+        #res[0] = (tm - te) / self.tag * self.w_base - wdot
+        res[1] = - phidot
+        res[2] = (iLr + Ggnd * uBr) - iGr
+        res[3] = (iLi + Ggnd * uBi) - iGi
+        res[4] = ( P_load / 3 * uBr + Q_load / 3 * uBi) / den - iLr
+        res[5] = (-Q_load / 3 * uBr + P_load / 3 * uBi) / den - iLi
         res[6] = uBr + R_gen * iGr - X_gen * iGi - E0 * np.cos(phi)
         res[7] = uBi + X_gen * iGr + R_gen * iGi - E0 * np.sin(phi)
         return 0
@@ -132,24 +132,24 @@ class jacindex1(ida.IDA_JacRhsFunction):
 
         jac[:,:] = 0.
         den = n * cosn * tag
-        jac[0,0] = pt / (n**2 * tag)
-        jac[0,2] = (igr / V_base) / den * w_base
-        jac[0,3] = (igi / V_base) / den * w_base
-        jac[0,6] = (ubr + 2 * rstr * igr) / den * w_base / I_base_gen
-        jac[0,7] = (ubi + 2 * rstr * igi) / den * w_base / I_base_gen
-        jac[2,2] = -Ggnd
-        jac[2,4] = -1.
-        jac[2,6] = 1.
-        jac[3,3] = -Ggnd
-        jac[3,5] = -1.
-        jac[3,7] = 1.
+        jac[0,0] = -pt / (n**2 * tag)
+        jac[0,2] = -(igr / V_base) / den * w_base
+        jac[0,3] = -(igi / V_base) / den * w_base
+        jac[0,6] = -(ubr + 2 * rstr * igr) / den * w_base / I_base_gen
+        jac[0,7] = -(ubi + 2 * rstr * igi) / den * w_base / I_base_gen
+        jac[2,2] = Ggnd
+        jac[2,4] = 1.
+        jac[2,6] = -1.
+        jac[3,3] = Ggnd
+        jac[3,5] = 1.
+        jac[3,7] = -1.
         den = (uBr ** 2 + uBi ** 2) ** 2
-        jac[4,2] = -(P_load/3 * (uBi**2 - uBr**2) - 2 * Q_load/3 * uBr * uBi) / den
-        jac[4,3] = -(Q_load/3 * (uBr**2 - uBi**2) - 2 * P_load/3 * uBr * uBi) / den
-        jac[4,4] = 1.
-        jac[5,2] = -(Q_load/3 * (uBr**2 - uBi**2) - 2 * P_load/3 * uBr * uBi) / den
-        jac[5,3] = -(P_load/3 * (uBr**2 - uBi**2) - 2 * Q_load/3 * uBr * uBi) / den
-        jac[5,5] = 1.
+        jac[4,2] = (P_load/3 * (uBi**2 - uBr**2) - 2 * Q_load/3 * uBr * uBi) / den
+        jac[4,3] = (Q_load/3 * (uBr**2 - uBi**2) - 2 * P_load/3 * uBr * uBi) / den
+        jac[4,4] = -1.
+        jac[5,2] = (Q_load/3 * (uBr**2 - uBi**2) - 2 * P_load/3 * uBr * uBi) / den
+        jac[5,3] = (P_load/3 * (uBr**2 - uBi**2) - 2 * Q_load/3 * uBr * uBi) / den
+        jac[5,5] = -1.
         jac[6,1] = E0 * np.sin(phi)
         jac[6,2] = 1.
         jac[6,6] = R_gen
