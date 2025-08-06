@@ -15,9 +15,9 @@
 	"match_gen_cons": false,
 	"P_match": 1,
     "stoch_loads": [
-		"Load_03", "Load_04"
+		"Load_*"
 	],
-	"limits": {"P": [5.0, 1e3], "Q": [5.0, 1e3]},
+	"limits": {"P": [1.0, 1e3], "Q": [-1e3, 1e3]},
 	"sigma": {"P": 0.01, "Q": 0.0},
 	"tau": {"P": 0.02, "Q": 0.02},
 	"record": {
