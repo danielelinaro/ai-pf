@@ -15,15 +15,15 @@
 	"match_gen_cons": false,
 	"P_match": 1,
     "stoch_loads": [
-		"Load_04"
+		"Load_03", "Load_04"
 	],
 	"limits": {"P": [5.0, 1e3], "Q": [5.0, 1e3]},
 	"sigma": {"P": 0.01, "Q": 0.0},
 	"tau": {"P": 0.02, "Q": 0.02},
 	"record": {
 		"ElmSym": {
-			"names": "*",
-			"vars": ["s:xspeed"],
+			"names": ["G_01", "G_02"],
+			"vars": ["s:speed", "s:phi", "m:ir:bus1", "m:ii:bus1"],
 			"attrs": ["loc_name", "pgini", "qgini", "typ_id.h", "typ_id.sgn"],
 			"devs_name": "gen"
 		},
@@ -43,7 +43,7 @@
 		}
 	},
 	"coiref": "element",
+	"dt": 5e-3,
 	"seed": 1983,
-	"dt": 0.005,
-	"tstop": 600
+	"tstop": 3600
 }

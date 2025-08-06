@@ -604,7 +604,7 @@ class TimeVaryingLoad(object):
         with open(filename, 'w') as fid:
             fid.write('2\n')
             for row in tPQ:
-                fid.write(f'{row[0]:.6f}\t{row[1]:.2f}\t{row[2]:.2f}\n')
+                fid.write(f'{row[0]:.6f}\t{row[1]:.6f}\t{row[2]:.6f}\n')
         if verbose:
             sys.stdout.write('done.\n')
 
@@ -772,12 +772,10 @@ def run_tran():
                                                        if 'ElmLod' in config['out_of_service'] else []),
                         _get_objects('*.ElmLod')))
     n_loads = len(loads)
-
+ 
     if verbosity_level > 0:
-        if n_loads == 1:
-            print('One load matches the name pattern and has either P or Q within the limits.')
-        else:
-            print(f'{n_loads} loads match the name pattern and have either P or Q within the limits.')
+        print('{} load{} match{} the name pattern and ha{} either P or Q within the limits.'.\
+            format(n_loads, 's' if n_loads > 1 else '', 'es' if n_loads == 1 else '', 's' if n_loads == 1 else 've'))
         if verbosity_level > 2:
             print('{:^5s} {:<30s} {:^10s} {:^10s}'.format('#', 'Name', 'P [MW]', 'Q [MVAr]'))
             print('=' * 58)
@@ -785,23 +783,37 @@ def run_tran():
                 print('[{:3d}] {:30s} {:10.3f} {:10.3f}'.format(i+1, load.loc_name, load.plini, load.qlini))
 
     seeds = rs.randint(0, 1000000, size=n_loads)
-    stoch_loads = [OULoad(ld, PF_APP, grid, config['library_name'],
-                          config['user_models_name'], config['frame_name'],
-                          outdir='stoch_loads', seed=sd)
-                   for ld, sd in zip(loads, seeds)]
+    if 'sigma' in config and 'tau' in config:
+        time_varying_loads = [OULoad(ld, PF_APP, grid, config['library_name'],
+                              config['user_models_name'], config['frame_name'],
+                              outdir='stoch_loads', seed=sd)
+                       for ld, sd in zip(loads, seeds)]
+        load_type = 'stoch'
+    elif 'sine' in config:
+        time_varying_loads = [SinusoidalLoad(ld, PF_APP, grid, config['library_name'],
+                                    config['user_models_name'], config['frame_name'],
+                                    outdir='sinusoidal_loads') for ld in loads]
+        load_type = 'sin'
+    else:
+        raise Exception('Do not know what type of time-varying load to instantiate.')
 
     dt = config['dt']
     tstop = config['tstop']
     n_samples = int(np.ceil(tstop / dt)) + 1
-    tau = [config['tau']['P'], config['tau']['Q']]
 
-    for i, (load, stoch_load) in enumerate(zip(loads, stoch_loads)):
-        P = load.plini, np.abs(load.plini) * config['sigma']['P']
-        Q = load.qlini, np.abs(load.qlini) * config['sigma']['Q']
+    for i, (load, tv_load) in enumerate(zip(loads, time_varying_loads)):
         msg = 'Writing load file {:d}/{:d}...'.format(i+1, n_loads)
         sys.stdout.write(msg)
         sys.stdout.flush()
-        stoch_load.write_to_file(dt, P, Q, n_samples, tau, verbosity_level>2)
+        if load_type == 'stoch':
+            P = load.plini, np.abs(load.plini) * config['sigma']['P']
+            Q = load.qlini, np.abs(load.qlini) * config['sigma']['Q']
+            tau = [config['tau']['P'], config['tau']['Q']]
+            tv_load.write_to_file(dt, P, Q, n_samples, tau, verbosity_level>2)
+        elif load_type == 'sin':
+            P = load.plini, np.abs(load.plini) * config['sine']['P']
+            Q = load.qlini, np.abs(load.qlini) * config['sine']['Q']
+            tv_load.write_to_file(dt, P, Q, config['sine']['freq'], n_samples, verbosity_level>2)
         if i < n_loads-1:
             sys.stdout.write('\b' * len(msg))
     sys.stdout.write('\n')
@@ -834,12 +846,6 @@ def run_tran():
         attributes, device_names, ref_SMs = _get_attributes(config['record'], verbosity_level>1)
         blob = {'config': config,
                 'seed': seed,
-                'OU_seeds': np.array([ld.seed for ld in stoch_loads]),
-                'OU_P': np.array([ld.P_OU for ld in stoch_loads]).T,
-                'OU_Q': np.array([ld.Q_OU for ld in stoch_loads]).T,
-                'stoch_load_names': [ld.load.loc_name for ld in stoch_loads],
-                'stoch_load_P': [ld.load.plini for ld in stoch_loads],
-                'stoch_load_Q': [ld.load.qlini for ld in stoch_loads],
                 'inertia': Htot,
                 'energy': Etot,
                 'momentum': Mtot,
@@ -855,13 +861,24 @@ def run_tran():
                 'attributes': attributes,
                 'device_names': device_names,
                 'ref_SMs': ref_SMs}
+        if load_type == 'stoch':
+            blob.update({'OU_seeds': np.array([ld.seed for ld in time_varying_loads]),
+                'OU_P': np.array([ld.P_OU for ld in time_varying_loads]).T,
+                'OU_Q': np.array([ld.Q_OU for ld in time_varying_loads]).T,
+                'stoch_load_names': [ld.load.loc_name for ld in time_varying_loads],
+                'stoch_load_P': [ld.load.plini for ld in time_varying_loads],
+                'stoch_load_Q': [ld.load.qlini for ld in time_varying_loads]})
+        elif load_type == 'sin':
+            blob.update({'sin_load_names': [ld.load.loc_name for ld in time_varying_loads],
+                'sin_load_P': [ld.load.plini for ld in time_varying_loads],
+                'sin_load_Q': [ld.load.qlini for ld in time_varying_loads]})
         np.savez_compressed(outfile, **blob)
 
     except Exception as inst:
         sys.stdout.write('Failed to run transient simulation: ')
         print(inst)
  
-    for load in stoch_loads:
+    for load in time_varying_loads:
         load.clean(verbosity_level>2)
 
     _restore_network_state(verbosity_level>2)

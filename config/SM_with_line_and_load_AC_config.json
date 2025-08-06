@@ -1,8 +1,11 @@
 {
+    "db_name": "Terna_Inerzia",
     "project_name": "SM_with_line_and_load",
     "grid_name": "Grid",
 	"out_of_service": {"ElmGenstat": []},
 	"synch_mach": {"G1": {"typ_id.h": 4.0}},
 	"coiref": "element",
-	"outdir": "C:\\Users\\Terna_Inerzia\\Desktop\\modal_analysis\\SM_with_line_and_load\\static_load_const_Z_element"
+	"match_gen_cons": false,
+	"P_match": 1,
+	"outdir": "C:\\Users\\Terna_Inerzia\\Desktop\\modal_analysis\\SM_with_line_and_load\\adynamic_load_const_S\\LD1"
 }

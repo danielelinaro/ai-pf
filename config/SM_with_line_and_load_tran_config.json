@@ -1,31 +1,49 @@
 {
+	"db_name": "Terna_Inerzia",
     "project_name": "SM_with_line_and_load",
     "grid_name": "Grid",
 	"library_name": "Library",
-	"user_models_name": "Dynamic Models",
+	"user_models_name": "User Defined Models",
 	"frame_name": "TimeVaryingLoadFrame",
-	"out_of_service": {"ElmGenstat": []},
-	"synch_mach": {"G1": {"typ_id.h": 4.0}},
-    "stoch_loads": ["LD1"],
-	"limits": {"P": [1.0, 100], "Q": [-100.0, 100]},
+	"out_of_service": {},
+	"synch_mach": {
+		"G1": {
+			"ip_ctrl": 1,
+			"typ_id.h": 4.0
+		}
+	},
+    "match_gen_cons": false,
+	"P_match": 1,
+	"stoch_loads": [
+		"LD1"
+	],
+	"limits": {"P": [0.1, 100], "Q": [-100.0, 100]},
 	"sigma": {"P": 0.01, "Q": 0.0},
 	"tau": {"P": 0.02, "Q": 0.02},
 	"record": {
 		"ElmSym": {
-			"names": "G1",
-			"vars": ["s:xspeed"],
+			"names": "*",
+			"vars": ["s:speed", "s:phi", "m:ir:bus1", "m:ii:bus1"],
 			"attrs": ["loc_name", "pgini", "qgini", "typ_id.h", "typ_id.sgn"],
 			"devs_name": "gen"
 		},
 		"ElmTerm": {
-			"names": "Bus*",
-			"vars": ["m:ur", "m:ui", "m:fe"],
+			"names": "*",
+			"vars": ["m:ur", "m:ui", "m:u", "m:U", "m:phiu", "m:fe"],
 			"attrs": ["loc_name", "uknom", "unknom"],
 			"devs_name": "bus"
+		},
+		"ElmLod": {
+			"names": "*",
+			"vars": ["m:Psum:bus1", "m:Qsum:bus1",
+					 "m:ir:bus1", "m:ii:bus1",
+					 "m:I:bus1", "m:phii:bus1"],
+			"attrs": ["loc_name", "plini", "qlini"],
+			"devs_name": "load"	
 		}
-
 	},
 	"coiref": "element",
 	"dt": 5e-3,
-	"tstop": 14400
+	"seed": 1983,
+	"tstop": 3600
 }
