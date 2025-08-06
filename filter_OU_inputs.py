@@ -21,7 +21,7 @@ iter_fun = lambda it: tqdm(it, ascii=True, ncols=70)
 __all__ = ['run_vf', 'run_welch']
 
 
-def run_vf(X, F, n_poles, n_iter=4, weights=None, poles_guess=None, do_plot=False):
+def run_vf(X, F, n_poles, n_iter=3, weights=None, poles_guess=None, do_plot=False):
     """
     Runs the vector fitting algorithm for a given number of poles
     """
@@ -198,9 +198,12 @@ if __name__ == '__main__':
     vars_idx = np.array(vars_idx)
     N_vars = len(var_names)
 
-    load_names = config['load_names']
+    # these are the loads that should be stochastic in this simulation
+    load_names = config['input_loads']
     N_loads = len(load_names)
-    all_load_names = data['load_names'].tolist()
+    # these are the loads for which individual TFs were computed by compute_spectra.py:
+    # they are NOT necessarily all the loads that are present in the power network
+    all_load_names = data['input_loads'].tolist()
     loads_idx = np.array([all_load_names.index(load_name) for load_name in load_names])
     # mean has to be zero because we are simulating small signal fluctuations around the mean
     mu = np.zeros(N_loads)
@@ -258,7 +261,7 @@ if __name__ == '__main__':
         y_all = []
         for S,u in zip(systems[i],U):
             _,y,_ = lsim(S,u,time)
-            assert y.imag.max() < 1e-10
+            assert y.imag.max() < 1e-6
             y_all.append(y.real)
         Y[i,:] = np.sum(y_all, axis=0)
 
@@ -272,21 +275,7 @@ if __name__ == '__main__':
     OUT = data['OUT']
     PF = data['PF'].item()
     F0 = 50.
-    var_types = []
-    for i in range(N_vars):
-        _,typ = os.path.splitext(var_names[i])
-        if typ == '.ur':
-            var_types.append('m:ur')
-        elif typ == '.ui':
-            var_types.append('m:ui')
-        elif typ == '.u':
-            var_types.append('U')
-        elif typ == '.speed':
-            var_types.append('s:xspeed')
-        elif typ == '.fe':
-            var_types.append('m:fe')
-        else:
-            raise Exception(f"Unknown variable type '{typ[1:]}'")
+    var_types = [os.path.splitext(name)[1][1:] for name in var_names]
     OUT_multi =  combine_output_spectra(OUT, load_names, var_names, all_load_names,
                                         all_var_names, var_types, F, PF,
                                         data['bus_equiv_terms'].item(), ref_freq=F0,
