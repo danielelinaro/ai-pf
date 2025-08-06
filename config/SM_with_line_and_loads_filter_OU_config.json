@@ -1,0 +1,25 @@
+{
+    "input_loads": [
+	"LD1", "LD2"
+    ],
+    "var_names": [
+	"Grid-G1.ElmSym.speed",
+	"Grid-G1.ElmSym.phi",
+	"Grid-Bus1.ElmTerm.ur",
+	"Grid-Bus1.ElmTerm.ui",
+	"Grid-Bus2.ElmTerm.ur",
+	"Grid-Bus2.ElmTerm.ui",
+	"Grid-LD1.ElmLod.ir",
+	"Grid-LD1.ElmLod.ii",
+	"Grid-LD2.ElmLod.ir",
+	"Grid-LD2.ElmLod.ii",
+	"Grid-G1.ElmSym.ir",
+	"Grid-G1.ElmSym.ii",
+	"Grid-Bus1.ElmTerm.fe",
+	"Grid-Bus2.ElmTerm.fe"
+    ],
+    "seed": 1983,
+    "tend": 3600,
+    "sampling_rate": 200,
+    "block_dur": 3600
+}
