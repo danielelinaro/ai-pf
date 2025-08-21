@@ -1,0 +1,22 @@
+{
+    "input_loads": [
+	"EqX_MIMC_I2201TR1_____LOAD____"
+    ],
+    "var_names": [
+        "Grid-ASSCPI-ASSCPI0151________SUBNET__-ASSCPI0151GGR1____GEN_____.ElmSym.speed",
+        "Grid-NARCDI-NARCDI1501________SUBNET__-NARCDI1501A5______BUS_____.ElmTerm.ur",
+        "Grid-NARCDI-NARCDI1501________SUBNET__-NARCDI1501A5______BUS_____.ElmTerm.ui",
+        "Grid-BDNC_I-BDNC_I1501________SUBNET__-BDNC_I1501A2______BUS_____.ElmTerm.ur",
+        "Grid-BDNC_I-BDNC_I1501________SUBNET__-BDNC_I1501A2______BUS_____.ElmTerm.ui",
+        "Grid-ASSCPI-ASSCPI1501________SUBNET__-ASSCPI1501A1______BUS_____.ElmTerm.ur",
+        "Grid-ASSCPI-ASSCPI1501________SUBNET__-ASSCPI1501A1______BUS_____.ElmTerm.ui",
+        "Grid-CODCTI-CODCTI3801________SUBNET__-CODCTI3801B1______BUS_____.ElmTerm.ur",
+        "Grid-CODCTI-CODCTI3801________SUBNET__-CODCTI3801B1______BUS_____.ElmTerm.ui",
+        "Grid-CODCTI-CODCTI0201________SUBNET__-CODCTI0201A1______BUS_____.ElmTerm.ur",
+        "Grid-CODCTI-CODCTI0201________SUBNET__-CODCTI0201A1______BUS_____.ElmTerm.ui"
+    ],
+    "seed": 1983,
+    "tend": 3600,
+    "sampling_rate": 200,
+    "block_dur": 3600
+}

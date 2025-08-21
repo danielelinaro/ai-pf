@@ -8,6 +8,7 @@ Created on Tue Oct 24 14:42:05 2023
 import os
 import re
 import sys
+import json
 import numpy as np
 from tqdm import tqdm
 
@@ -137,13 +138,19 @@ if __name__ == '__main__':
 
     if outfile is None:
         outdir = os.path.dirname(data_file)
-        if outdir == '':
-            outdir = '.'
         outfile = os.path.splitext(os.path.basename(data_file))[0] + \
             '_TF_{}_{}_{}'.format(fmin, fmax, steps_per_decade) + '.npz'
+    else:
+        outdir = os.path.dirname(outfile)
+        outfile = os.path.basename(outfile)
+        if outfile[-4:] != '.npz':
+            outfile += '.npz'
+    if outdir == '':
+        outdir = '.'
     if os.path.isfile(os.path.join(outdir, outfile)) and not force:
         print(f'{progname}: {os.path.join(outdir, outfile)}: file exists, use -f to overwrite.')
         sys.exit(1)
+
 
     if fmin >= fmax:
         print(f'{progname}: fmin must be < fmax.')
@@ -274,7 +281,12 @@ if __name__ == '__main__':
         ur, ui = PF['buses'][bus_name]['ur'], PF['buses'][bus_name]['ui']
         den = np.abs(ur + 1j * ui) ** 2
         for j, suffix in enumerate('ri'):
-            cols = vars_idx['Grid-{}.ElmLod'.format(input_load)]['i' + suffix]
+            key = 'Grid-{}.ElmLod'.format(input_load)
+            if key not in vars_idx:
+                keys = [key for key in vars_idx if input_load in key]
+                assert len(keys) == 1
+                key = keys[0]
+            cols = vars_idx[key]['i' + suffix]
             assert len(cols) == 1
             col = cols[0]
             input_rows[input_load][j] = int(np.argmin(np.abs(J[:, col] - (-1))))
