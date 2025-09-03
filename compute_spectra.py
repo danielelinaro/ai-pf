@@ -68,9 +68,9 @@ if __name__ == '__main__':
             v = sys.argv[i]
             if os.path.isfile(v):
                 if os.path.splitext(v)[1] == '.json':
-                    input_loads = json.load(open(v,'r'))['load_names']
+                    input_loads = json.load(open(v,'r'))['input_loads']
                 else:
-                    with open(v,'r') as fid:
+                    with open(v, 'r') as fid:
                         input_loads = [l.strip() for l in fid]
             else:
                 input_loads = v.split(',')
@@ -150,7 +150,6 @@ if __name__ == '__main__':
     if os.path.isfile(os.path.join(outdir, outfile)) and not force:
         print(f'{progname}: {os.path.join(outdir, outfile)}: file exists, use -f to overwrite.')
         sys.exit(1)
-
 
     if fmin >= fmax:
         print(f'{progname}: fmin must be < fmax.')

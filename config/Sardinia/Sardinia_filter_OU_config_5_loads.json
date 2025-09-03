@@ -1,7 +1,4 @@
 {
-    "input_load": [
-	"EqX_MIMC_I2201TR1_____LOAD____"
-    ],
     "input_loads": [
 	"EqX_MIMC_I2201TR1_____LOAD____",
 	"EqX_MIMC_I2201TR2_____LOAD____",
@@ -23,7 +20,7 @@
         "Grid-CODCTI-CODCTI0201________SUBNET__-CODCTI0201A1______BUS_____.ElmTerm.ui"
     ],
     "seed": 1983,
-    "tend": 3600,
+    "tend": 10800,
     "sampling_rate": 200,
-    "block_dur": 3600
+    "block_dur": 10800
 }
