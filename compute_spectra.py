@@ -8,6 +8,7 @@ Created on Tue Oct 24 14:42:05 2023
 import os
 import re
 import sys
+import json
 import numpy as np
 from tqdm import tqdm
 
@@ -21,7 +22,7 @@ def usage(exit_code=None):
     print(prefix + '[--ref-sm <name>] [--no-add-TF] <--dP | --sigmaP value1<,value2,...>>')
     print(prefix + '<-L | --loads load1<,load2,...> | filename>')
     print(prefix + '<-V | --vars-to-save var1<,var2,...> | filename>')
-    print(prefix + 'AC_data_file')
+    print(prefix + '[--save-mat] AC_data_file')
     if exit_code is not None:
         sys.exit(exit_code)
 
@@ -46,6 +47,7 @@ if __name__ == '__main__':
     ref_SM_name = None
     compute_additional_TFs = True
     use_numpy_inv = False
+    save_mat = False
 
     i = 1
     N_args = len(sys.argv)
@@ -67,9 +69,9 @@ if __name__ == '__main__':
             v = sys.argv[i]
             if os.path.isfile(v):
                 if os.path.splitext(v)[1] == '.json':
-                    input_loads = json.load(open(v,'r'))['load_names']
+                    input_loads = json.load(open(v,'r'))['input_loads']
                 else:
-                    with open(v,'r') as fid:
+                    with open(v, 'r') as fid:
                         input_loads = [l.strip() for l in fid]
             else:
                 input_loads = v.split(',')
@@ -81,7 +83,7 @@ if __name__ == '__main__':
                     vars_to_save = json.load(open(v,'r'))['var_names']
                 else:
                     with open(v,'r') as fid:
-                        vars_to_save = [l.strip() for l in fid]
+                        vars_to_save = [l.strip() for l in fid if l.strip()[0] != '#']
             else:
                 vars_to_save = v.split(',')
         elif arg == '--no-add-TF':
@@ -108,6 +110,12 @@ if __name__ == '__main__':
             force = True
         elif arg == '--use-numpy-inv':
             use_numpy_inv = True
+        elif arg == '--save-mat':
+            try:
+                from scipy.io import savemat
+                save_mat = True
+            except:
+                raise Warning('scipy not available: will not save MAT file')
         elif arg[0] == '-':
             print(f'{progname}: unknown option `{arg}`.')
             sys.exit(1)
@@ -123,7 +131,7 @@ if __name__ == '__main__':
     else:
         print(f'{progname}: arguments after project name are not allowed')
         sys.exit(1)
-        
+
     if not os.path.isfile(data_file):
         print(f'{progname}: {data_file}: no such file.')
         sys.exit(1)
@@ -137,10 +145,15 @@ if __name__ == '__main__':
 
     if outfile is None:
         outdir = os.path.dirname(data_file)
-        if outdir == '':
-            outdir = '.'
         outfile = os.path.splitext(os.path.basename(data_file))[0] + \
             '_TF_{}_{}_{}'.format(fmin, fmax, steps_per_decade) + '.npz'
+    else:
+        outdir = os.path.dirname(outfile)
+        outfile = os.path.basename(outfile)
+        if outfile[-4:] != '.npz':
+            outfile += '.npz'
+    if outdir == '':
+        outdir = '.'
     if os.path.isfile(os.path.join(outdir, outfile)) and not force:
         print(f'{progname}: {os.path.join(outdir, outfile)}: file exists, use -f to overwrite.')
         sys.exit(1)
@@ -274,7 +287,12 @@ if __name__ == '__main__':
         ur, ui = PF['buses'][bus_name]['ur'], PF['buses'][bus_name]['ui']
         den = np.abs(ur + 1j * ui) ** 2
         for j, suffix in enumerate('ri'):
-            cols = vars_idx['Grid-{}.ElmLod'.format(input_load)]['i' + suffix]
+            key = 'Grid-{}.ElmLod'.format(input_load)
+            if key not in vars_idx:
+                keys = [key for key in vars_idx if input_load in key]
+                assert len(keys) == 1
+                key = keys[0]
+            cols = vars_idx[key]['i' + suffix]
             assert len(cols) == 1
             col = cols[0]
             input_rows[input_load][j] = int(np.argmin(np.abs(J[:, col] - (-1))))
@@ -396,6 +414,8 @@ if __name__ == '__main__':
            'mu': mu, 'c': c, 'alpha': alpha, 'dP': dP, 'sigmaP': sigmaP, 'ref_SM_name': ref_SM_name,
            'data_file': data_file, 'with_additional_TFs': compute_additional_TFs}
     np.savez_compressed(os.path.join(outdir, outfile), **out)
+    if save_mat:
+        savemat(os.path.join(outdir, os.path.splitext(outfile)[0] + '.mat'), out, long_field_names=True)
 
     tend = TIME()
     print('Elapsed time: {:.3f} sec.'.format(tend-tstart))
