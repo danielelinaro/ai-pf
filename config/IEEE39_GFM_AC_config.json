@@ -1,0 +1,16 @@
+{
+	"db_name": "Terna_Inerzia",
+    "project_name": "39 Bus New England System",
+	"study_case_name": "Converter-added-GFM",
+    "grid_name": "Grid",
+	"out_of_service": {
+		"ElmSym": ["G 09"]
+	},
+	"synch_mach": {"G 02": {"typ_id.h": 4.329}},
+	"CIG": {
+		"GFM_Bus 38": {"GFM - Power Control": {"Ta": 20}}
+	},
+	"DSL_params_to_save": ["Ta", "Ksi"],
+	"coiref": "element",
+	"outdir": "C:\\Users\\Terna_Inerzia\\Desktop\\modal_analysis\\IEEE39_GFM\\Ta_20"
+}

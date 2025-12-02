@@ -121,17 +121,25 @@ def _find_in_contents(container, obj_name):
     return None
 
 
-def _activate_project(project_name, verbose=False):   
+def _activate_project(project_name, study_case_name=None, verbose=False):   
     ### Activate the project
     err = PF_APP.ActivateProject(project_name)
     if err:
-        raise Exception(f'Cannot activate project {project_name}.')
+        raise Exception(f'Cannot activate project "{project_name}".')
     if verbose: print(f'Activated project "{project_name}".')
     ### Get the active project
     project = PF_APP.GetActiveProject()
     if project is None:
         raise Exception('Cannot get active project.')
-    return project
+    if study_case_name is not None:
+        study_case_folder = PF_APP.GetProjectFolder('study')
+        study_cases = study_case_folder.GetContents('*.IntCase', 0)
+        for study_case in study_cases:
+            if study_case.loc_name == study_case_name:
+                err = study_case.Activate()
+                if verbose: print(f'Activated study case "{study_case_name}".')
+                return project, study_case
+    return project, None
 
 
 def _find_objects(to_find, verbose=False):
@@ -211,6 +219,7 @@ def _apply_configuration(config, verbosity_level):
         SM_dict = {}
         for k,v in config['synch_mach'].items():
             if k == 'config':
+                print('Loading configuration from file {}.'.format(v))
                 SM_config = json.load(open(v,'r'))
                 for name,state in SM_config.items():
                     SM_dict[name] = state
@@ -226,7 +235,7 @@ def _apply_configuration(config, verbosity_level):
                             obj = obj.GetAttribute(subattr)
                         obj.SetAttribute(subattrs[-1], value)
             else:
-                raise Exception(f'Do not know how to deal with key `{k}` in config["synch_mach"]')
+                print(f"Unknown key '{k}' in config['synch_mach'].")
         inserv,outserv = _find_SMs_to_toggle(SM_dict)
         for SM,objs in inserv.items():
             # objs are objects currently IN SERVICE
@@ -261,8 +270,8 @@ def _apply_configuration(config, verbosity_level):
                             idx = param_names.index(k)
                             # elem.params[idx] = value does not set the parameter value
                             params[idx] = value
-                            print('Parameter `{}` (no. {}) of element `{}` of model `{}` set to {}.'.\
-                                  format(k,idx,elem.loc_name,model.loc_name,value))
+                            print("Parameter '{}' (no. {}) of element '{}' of model '{}' set to {}.".\
+                                  format(k, idx, elem.loc_name, model.loc_name, value))
                         elem.params = params
                         
     if 'DSL' in config:
@@ -358,27 +367,30 @@ def _compute_measures(fn, verbose=False):
     # synchronous machines
     cnt = 0
     Psm, Qsm = 0, 0
-    H, S, J = {}, {}, {}
+    Hsm, Ssm, Jsm = {}, {}, {}
     for sm in PF_APP.GetCalcRelevantObjects('*.ElmSym'):
         if not sm.outserv:
             name = sm.loc_name
             Psm += sm.pgini
             Qsm += sm.qgini
-            H[name],S[name] = sm.typ_id.h, sm.typ_id.sgn
-            J[name],polepairs = sm.typ_id.J, sm.typ_id.polepairs
+            Hsm[name], Ssm[name] = sm.typ_id.h, sm.typ_id.sgn
+            Jsm[name], polepairs = sm.typ_id.J, sm.typ_id.polepairs
             cnt += 1
             if verbose:
                 print('[{:2d}] {}: S = {:7.1f} MVA, H = {:5.2f} s, J = {:7.0f} kgm^2, polepairs = {}{}'.
-                      format(cnt, name, S[name], H[name], J[name], polepairs, ' [SLACK]' if sm.ip_ctrl else ''))
+                      format(cnt, name, Ssm[name], Hsm[name], Jsm[name],
+                             polepairs, ' [SLACK]' if sm.ip_ctrl else ''))
         elif sm.ip_ctrl and verbose:
             print('{}: SM SLACK OUT OF SERVICE'.format(sm.loc_name))
     # static generators
     Psg, Qsg = 0, 0
+    Ssg = {}
     for sg in PF_APP.GetCalcRelevantObjects('*.ElmGenStat'):
         if not sg.outserv:
             name = sg.loc_name
             Psg += sg.pgini
             Qsg += sg.qgini
+            Ssg[name] = sg.sgn
         if sg.ip_ctrl and verbose:
             print('{}: SG SLACK{}'.format(sg.loc_name, ' OUT OF SERVICE' if sg.outserv else ''))
     # loads
@@ -387,8 +399,8 @@ def _compute_measures(fn, verbose=False):
         if not load.outserv:
             Pload += load.plini
             Qload += load.qlini
-    Etot = np.sum([H[k]*S[k] for k in H])
-    Stot = np.sum(list(S.values()))
+    Etot = np.sum([Hsm[k] * Ssm[k] for k in Hsm])
+    Stot = np.sum(list(Ssm.values()))
     Htot = Etot / Stot
     Mtot = 2 * Etot / fn
     if verbose:
@@ -402,7 +414,7 @@ def _compute_measures(fn, verbose=False):
         print(' INERTIA: {:8.1f} s.'.format(Htot))
         print('  ENERGY: {:8.1f} MJ.'.format(Etot))
         print('MOMENTUM: {:8.1f} MJ s.'.format(Mtot))
-    return Htot,Etot,Mtot,Stot,H,S,J,Pload,Qload,Psm,Qsm,Psg,Qsg
+    return Htot, Etot, Mtot, Stot, Hsm, Ssm, Jsm, Ssg, Pload, Qload, Psm, Qsm, Psg, Qsg
 
 
 def _set_vars_to_save(record_map, verbose=False):
@@ -820,8 +832,22 @@ def run_tran():
     
     PF1, PF2 = _apply_configuration(config, verbosity_level)
 
-    Htot,Etot,Mtot,Stot,H,S,J,Pload,Qload,Psm,Qsm,Psg,Qsg = \
-        _compute_measures(grid.frnom, verbosity_level>0)
+    (
+        Htot,
+        Etot,
+        Mtot,
+        Stot,
+        Hsm,
+        Ssm,
+        Jsm,
+        Ssg,
+        Pload,
+        Qload,
+        Psm,
+        Qsm,
+        Psg,
+        Qsg
+    ) = _compute_measures(grid.frnom, verbosity_level>0)
 
     # for SM in _get_objects('*.ElmSym'):
     #     bus = SM.bus1.cterm
@@ -850,9 +876,9 @@ def run_tran():
                 'energy': Etot,
                 'momentum': Mtot,
                 'Stot': Stot,
-                'H': H, 'S': S, 'J': J,
+                'Hsm': Hsm, 'Ssm': Ssm, 'Jsm': Jsm,
                 'Psm': Psm, 'Qsm': Qsm,
-                'Psg': Psg, 'Qsg': Qsg,
+                'Ssg': Ssg, 'Psg': Psg, 'Qsg': Qsg,
                 'Pload': Pload, 'Qload': Qload,
                 'PF_with_slack': PF1,
                 'PF_without_slack': PF2,
@@ -958,7 +984,8 @@ def run_AC_analysis():
 
     PF_db_name = config['db_name'] if 'db_name' in config else 'Terna_Inerzia'
     project_name = '\\' + PF_db_name + '\\' + config['project_name']
-    project = _activate_project(project_name, verbosity_level>0)
+    study_case_name = config.get('study_case_name', None)
+    project, study_case = _activate_project(project_name, study_case_name, verbosity_level>0)
     _print_network_info()
 
     # we can't use _find_object because grids do not have an .outserv flag
@@ -975,9 +1002,39 @@ def run_AC_analysis():
 
     PF1, PF2 = _apply_configuration(config, verbosity_level)
     
-    Htot,Etot,Mtot,Stot,H,S,J,Pload,Qload,Psm,Qsm,Psg,Qsg = \
-        _compute_measures(grid.frnom, verbosity_level>0)
-    
+    (
+        Htot,
+        Etot,
+        Mtot,
+        Stot,
+        Hsm,
+        Ssm,
+        Jsm,
+        Ssg,
+        Pload,
+        Qload,
+        Psm,
+        Qsm,
+        Psg,
+        Qsg
+    ) = _compute_measures(grid.frnom, verbosity_level>0)
+
+    # get parameters of DSL objects
+    DSL_params_to_save = config.get('DSL_params_to_save', None)
+    DSL_params = {}
+    if DSL_params_to_save is not None and len(DSL_params_to_save) > 0:
+        DSL_params_to_save = [par.lower() for par in DSL_params_to_save]
+        DSL_models = _get_objects('*.ElmDsl')
+        for model in DSL_models:
+            param_names = model.typ_id.sParams
+            if len(param_names) == 0:
+                continue
+            param_names = param_names[0].split(',')
+            param_values = model.params
+            for name, value in zip(param_names, param_values):
+                if name.lower() in DSL_params_to_save:
+                    DSL_params[model.loc_name] = {name: value}
+
     inc = _IC(0.001, coiref=config['coiref'], verbose=verbosity_level>1)
     modal_analysis = PF_APP.GetFromStudyCase('ComMod')
     # modal_analysis.cinitMode          = 1
@@ -1056,9 +1113,10 @@ def run_AC_analysis():
                 'energy': Etot,
                 'momentum': Mtot,
                 'Stot': Stot,
-                'H': H, 'S': S, 'J': J,
+                'Hsm': Hsm, 'Ssm': Ssm, 'Jsm': Jsm,
                 'Psm': Psm, 'Qsm': Qsm,
-                'Psg': Psg, 'Qsg': Qsg,
+                'Ssg': Ssg, 'Psg': Psg, 'Qsg': Qsg,
+                'DSL_params': DSL_params,
                 'Pload': Pload, 'Qload': Qload,
                 'PF_with_slack': PF1,
                 'PF_without_slack': PF2,
@@ -1165,9 +1223,23 @@ def run_AC_tran_analysis():
         sys.exit(1)
 
     PF1, PF2 = _apply_configuration(config, verbosity_level)
-    
-    Htot,Etot,Mtot,Stot,H,S,J,Pload,Qload,Psm,Qsm,Psg,Qsg = \
-        _compute_measures(grid.frnom, verbosity_level>0)
+
+    (
+        Htot,
+        Etot,
+        Mtot,
+        Stot,
+        Hsm,
+        Ssm,
+        Jsm,
+        Ssg,
+        Pload,
+        Qload,
+        Psm,
+        Qsm,
+        Psg,
+        Qsg
+    ) = _compute_measures(grid.frnom, verbosity_level>0)
 
     n = int(F_stop - F_start) * steps_per_decade + 1
     F = np.logspace(F_start, F_stop, n)    
@@ -1213,9 +1285,9 @@ def run_AC_tran_analysis():
                 'energy': Etot,
                 'momentum': Mtot,
                 'Stot': Stot,
-                'H': H, 'S': S, 'J': J,
+                'Hsm': Hsm, 'Ssm': Ssm, 'Jsm': Jsm,
                 'Psm': Psm, 'Qsm': Qsm,
-                'Psg': Psg, 'Qsg': Qsg,
+                'Ssg': Ssg, 'Psg': Psg, 'Qsg': Qsg,
                 'Pload': Pload, 'Qload': Qload,
                 'PF_with_slack': PF1,
                 'PF_without_slack': PF2,
