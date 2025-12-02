@@ -22,7 +22,7 @@ def usage(exit_code=None):
     print(prefix + '[--ref-sm <name>] [--no-add-TF] <--dP | --sigmaP value1<,value2,...>>')
     print(prefix + '<-L | --loads load1<,load2,...> | filename>')
     print(prefix + '<-V | --vars-to-save var1<,var2,...> | filename>')
-    print(prefix + '[--save-mat] AC_data_file')
+    print(prefix + '[--save-mat] [-v | --verbose] AC_data_file')
     if exit_code is not None:
         sys.exit(exit_code)
 
@@ -48,6 +48,7 @@ if __name__ == '__main__':
     compute_additional_TFs = True
     use_numpy_inv = False
     save_mat = False
+    verbose = False
 
     i = 1
     N_args = len(sys.argv)
@@ -108,6 +109,8 @@ if __name__ == '__main__':
             outfile = sys.argv[i]
         elif arg in ('-f', '--force'):
             force = True
+        elif arg in ('-v', '--verbose'):
+            verbose = True
         elif arg == '--use-numpy-inv':
             use_numpy_inv = True
         elif arg == '--save-mat':
@@ -190,19 +193,25 @@ if __name__ == '__main__':
         print(f'{progname}: {ref_SM_name} is not among the available synchronous machines.')
     static_gen_names = [n for n in data['static_gen_names']] if 'static_gen_names' in data else None
     bus_names = [n for n in data['voltages'].item().keys()]
-    H = np.array([data['H'].item()[name] for name in SM_names])
-    S = np.array([data['S'].item()[name] for name in SM_names])
+    try:
+        # current version of data file
+        H_SM = np.array([data['Hsm'].item()[name] for name in SM_names])
+        S_SM = np.array([data['Ssm'].item()[name] for name in SM_names])
+    except:
+        # old version of data file
+        H_SM = np.array([data['H'].item()[name] for name in SM_names])
+        S_SM = np.array([data['S'].item()[name] for name in SM_names])
     PF = data['PF_without_slack'].item()
     N_SMs = len(SM_names)
-    P = np.zeros(N_SMs)
-    Q = np.zeros(N_SMs)
-    for i,name in enumerate(SM_names):
+    P_SM = np.zeros(N_SMs)
+    Q_SM = np.zeros(N_SMs)
+    for i, name in enumerate(SM_names):
         if name in PF['SMs']:
             key = name
         else:
             key = name + '____GEN_____'
-        P[i] = PF['SMs'][key]['P']
-        Q[i] = PF['SMs'][key]['Q']
+        P_SM[i] = PF['SMs'][key]['P']
+        Q_SM[i] = PF['SMs'][key]['Q']
 
     J, Amat = data['J'], data['A']
     vars_idx = data['vars_idx'].item()
@@ -282,7 +291,8 @@ if __name__ == '__main__':
         if not found:
             print(f"Variable index for '{bus_name}' not found.")
             continue
-        print(f'[{i+1:2d}] {bus_name} -> {full_bus_name} {flag}')
+        if verbose:
+            print(f'[{i+1:2d}] {bus_name} -> {full_bus_name} {flag}')
 
         ur, ui = PF['buses'][bus_name]['ur'], PF['buses'][bus_name]['ui']
         den = np.abs(ur + 1j * ui) ** 2
@@ -297,8 +307,9 @@ if __name__ == '__main__':
             col = cols[0]
             input_rows[input_load][j] = int(np.argmin(np.abs(J[:, col] - (-1))))
             coeffs[input_load][j] = PF['buses'][bus_name][f'u{suffix}'] / den
-            print("Variable 'i{}' of object '{}' is at column {}: equation #{}.".\
-                  format(suffix, input_load, col + 1, input_rows[input_load][j] + 1))
+            if verbose:
+                print("Variable 'i{}' of object '{}' is at column {}: equation #{}.".\
+                      format(suffix, input_load, col + 1, input_rows[input_load][j] + 1))
 
         mean = PF_loads[input_load]['P']
         if len(dP) > 0:
@@ -334,8 +345,6 @@ if __name__ == '__main__':
             OUT[i, j, :N_state_vars] = MinvxB @ v if use_at_matmul else np.dot(MinvxB, v)
             OUT[i, j, N_state_vars:] = ((C @ MinvxB) + D) @ v if use_at_matmul else np.dot(np.dot(C, MinvxB) + D, v)
 
-    TF[TF == 0] = 1e-20 * (1+1j)
-    OUT[OUT == 0] = 1e-20 * (1+1j)
     var_names, idx = [], []
     for k1,D in vars_idx.items():
         for k2,V in D.items():
@@ -344,6 +353,9 @@ if __name__ == '__main__':
                 var_names.append(k)
                 idx.append(v)
     var_names = [var_names[i] for i in np.argsort(idx)]
+
+    TF[TF == 0] = 1e-20 * (1+1j)
+    OUT[OUT == 0] = 1e-20 * (1+1j)
 
     if compute_additional_TFs:
         if ref_SM_name is None:
@@ -404,12 +416,14 @@ if __name__ == '__main__':
         TF = TF[:,:,idx]
         OUT = OUT[:,:,idx]
 
-    Htot = data['inertia']
-    Etot = data['energy']
-    Mtot = data['momentum']
+    Htot_SM = data['inertia']
+    Etot_SM = data['energy']
+    Mtot_SM = data['momentum']
     out = {'A': A, 'F': F, 'TF': TF, 'OUT': OUT, 'var_names': var_names, 'SM_names': SM_names,
            'static_gen_names': static_gen_names, 'bus_names': bus_names, 'input_loads': input_loads,
-           'Htot': Htot, 'Etot': Etot, 'Mtot': Mtot, 'H': H, 'S': S, 'P': P, 'Q': Q,
+           'Htot_SM': Htot_SM, 'Etot_SM': Etot_SM, 'Mtot_SM': Mtot_SM,
+           'H_SM': H_SM, 'S_SM': S_SM, 'P_SM': P_SM, 'Q_SM': Q_SM,
+           'S_SG': data['Ssg'].item(), 'DSL_params': data['DSL_params'].item(),
            'PF': data['PF_without_slack'], 'bus_equiv_terms': data['bus_equiv_terms'],
            'mu': mu, 'c': c, 'alpha': alpha, 'dP': dP, 'sigmaP': sigmaP, 'ref_SM_name': ref_SM_name,
            'data_file': data_file, 'with_additional_TFs': compute_additional_TFs}
