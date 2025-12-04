@@ -256,24 +256,28 @@ def _apply_configuration(config, verbosity_level):
     _turn_on_objects(TO_TURN_OFF, verbosity_level>2)
 
     # set parameter values according to the configuration
-    if 'CIG' in config:
+    composite_models_pars = config.get('composite_models_parameters', None)
+    if composite_models_pars is not None:
+        found = False
         composite_models = _get_objects('*.ElmComp')
-        CIG_names = list(config['CIG'].keys())
         for model in composite_models:
-            if model.loc_name in CIG_names:
-                element_names = list(config['CIG'][model.loc_name].keys())
+            if model.loc_name in composite_models_pars:
+                found = True
+                element_names = list(composite_models_pars[model.loc_name].keys())
                 for elem in model.pelm:
                     if elem.loc_name in element_names:
                         param_names = elem.typ_id.sParams[0].split(',')
                         params = elem.params
-                        for k,value in config['CIG'][model.loc_name][elem.loc_name].items():
+                        for k, value in composite_models_pars[model.loc_name][elem.loc_name].items():
                             idx = param_names.index(k)
                             # elem.params[idx] = value does not set the parameter value
                             params[idx] = value
                             print("Parameter '{}' (no. {}) of element '{}' of model '{}' set to {}.".\
                                   format(k, idx, elem.loc_name, model.loc_name, value))
                         elem.params = params
-                        
+        if not found:
+            print('No composite model name matches the names in the "composite_models_parameters" entry of configuration file.')
+
     if 'DSL' in config:
         DSL_models = _get_objects('*.ElmDsl')
         DSL_names = list(config['DSL'].keys())
@@ -1020,20 +1024,27 @@ def run_AC_analysis():
     ) = _compute_measures(grid.frnom, verbosity_level>0)
 
     # get parameters of DSL objects
-    DSL_params_to_save = config.get('DSL_params_to_save', None)
-    DSL_params = {}
-    if DSL_params_to_save is not None and len(DSL_params_to_save) > 0:
-        DSL_params_to_save = [par.lower() for par in DSL_params_to_save]
-        DSL_models = _get_objects('*.ElmDsl')
-        for model in DSL_models:
-            param_names = model.typ_id.sParams
-            if len(param_names) == 0:
-                continue
-            param_names = param_names[0].split(',')
-            param_values = model.params
-            for name, value in zip(param_names, param_values):
-                if name.lower() in DSL_params_to_save:
-                    DSL_params[model.loc_name] = {name: value}
+    pars_to_save = config.get('parameters_to_save', None)
+    pars = {}
+    if pars_to_save is not None and len(pars_to_save) > 0:
+        pars_to_save = [par.lower() for par in pars_to_save]
+        composite_models = _get_objects('*.ElmComp')
+        DSLs = _get_objects('*.ElmDsl')
+        for model in composite_models:
+            model_name = model.loc_name
+            for slot, elem in zip(model.pblk, model.pelm):
+                if elem in DSLs:
+                    elem_name = elem.loc_name
+                    par_names = elem.typ_id.sParams
+                    if len(par_names) > 0:
+                        par_names = par_names[0].split(',')
+                        for par_name, value in zip(par_names, elem.params):
+                            if par_name.lower() in pars_to_save:
+                                if model_name not in pars:
+                                    pars[model_name] = {}
+                                if elem_name not in pars[model_name]:
+                                    pars[model_name][elem_name] = {}
+                                pars[model_name][elem_name][par_name] = value
 
     inc = _IC(0.001, coiref=config['coiref'], verbose=verbosity_level>1)
     modal_analysis = PF_APP.GetFromStudyCase('ComMod')
@@ -1116,7 +1127,7 @@ def run_AC_analysis():
                 'Hsm': Hsm, 'Ssm': Ssm, 'Jsm': Jsm,
                 'Psm': Psm, 'Qsm': Qsm,
                 'Ssg': Ssg, 'Psg': Psg, 'Qsg': Qsg,
-                'DSL_params': DSL_params,
+                'DSL_params': pars,
                 'Pload': Pload, 'Qload': Qload,
                 'PF_with_slack': PF1,
                 'PF_without_slack': PF2,

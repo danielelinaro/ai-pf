@@ -7,7 +7,7 @@
 		"ElmSym": []
 	},
 	"synch_mach": {"G 02": {"typ_id.h": 4.329}},
-	"DSL_params_to_save": ["Ta", "Ksi"],
+	"parameters_to_save": ["Ta"],
 	"coiref": "element",
 	"outdir": "C:\\Users\\Terna_Inerzia\\Desktop\\modal_analysis\\IEEE39_GFM\\default"
 }
