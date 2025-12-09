@@ -270,11 +270,13 @@ if __name__ == '__main__':
     PF_loads = PF['loads']
     mu, c, alpha = [], [], []
     full_element_names = list(vars_idx.keys())
+    grid_name = full_element_names[0].split('-')[0]
+    print(f'Grid name: {grid_name}.')
     element_names = list(map(lambda s: s.split('.')[0].split('-')[-1], full_element_names))
     bus_equiv_terms = data['bus_equiv_terms'].item()
     input_rows = {ld: np.zeros(2, dtype=int) for ld in input_loads}
     coeffs = {ld: np.zeros(2, dtype=float) for ld in input_loads}
-    for i,input_load in enumerate(input_loads):
+    for i, input_load in enumerate(input_loads):
         found = False
         bus_name = load_buses[input_load]
         if bus_name in element_names:
@@ -296,8 +298,8 @@ if __name__ == '__main__':
 
         ur, ui = PF['buses'][bus_name]['ur'], PF['buses'][bus_name]['ui']
         den = np.abs(ur + 1j * ui) ** 2
+        key = f'{grid_name}-{input_load}.ElmLod'
         for j, suffix in enumerate('ri'):
-            key = 'Grid-{}.ElmLod'.format(input_load)
             if key not in vars_idx:
                 keys = [key for key in vars_idx if input_load in key]
                 assert len(keys) == 1
@@ -432,4 +434,4 @@ if __name__ == '__main__':
         savemat(os.path.join(outdir, os.path.splitext(outfile)[0] + '.mat'), out, long_field_names=True)
 
     tend = TIME()
-    print('Elapsed time: {:.3f} sec.'.format(tend-tstart))
+    print('Elapsed time: {:.3f} sec.'.format(tend - tstart))
