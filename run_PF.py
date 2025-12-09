@@ -62,6 +62,7 @@ def _IC(dt, coiref=0, verbose=False):
     coiref_values = np.unique(list(coirefs.values()))
     ### compute the initial condition of the simulation
     inc = PF_APP.GetFromStudyCase('ComInc')
+    inc.iReuseLdf = True # re-use previous load-flow results
     inc.iopt_sim = 'rms'
     inc.iopt_coiref = 2
     inc.tstart = 0
@@ -324,7 +325,7 @@ def _apply_configuration(config, verbosity_level):
         print(f'Total power to distribute from {len(slacks)} slack generators: {P_to_distribute:.2f} MW.')
 
     # Find the loads that model the HVDC connections
-    HVDCs = [ld for ld in  _get_objects('ElmLod') if ld.typ_id.loc_name == 'HVDCload']
+    HVDCs = [ld for ld in  _get_objects('ElmLod') if getattr(ld, 'typ_id') is not None and ld.typ_id.loc_name == 'HVDCload']
     idx = np.argsort([hvdc.plini for hvdc in HVDCs])[::-1]
     HVDCs = [HVDCs[i] for i in idx]
     HVDC_P = {hvdc.loc_name: hvdc.plini for hvdc in HVDCs}

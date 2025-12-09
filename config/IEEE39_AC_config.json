@@ -6,8 +6,11 @@
 	"out_of_service": {
 		"ElmSym": []
 	},
-	"synch_mach": {"G 02": {"typ_id.h": 4.329}},
+	"synch_mach": {
+		"G 02": {"typ_id.h": 4.329},
+		"G 07": {"typ_id.h": 10}
+	},
 	"parameters_to_save": ["Ta"],
 	"coiref": "element",
-	"outdir": "C:\\Users\\Terna_Inerzia\\Desktop\\modal_analysis\\IEEE39_GFM\\default"
+	"outdir": "C:\\Users\\Terna_Inerzia\\Desktop\\modal_analysis\\IEEE39_GFM\\default_G7_H_10"
 }

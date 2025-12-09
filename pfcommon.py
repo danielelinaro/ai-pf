@@ -12,7 +12,7 @@ __all__ = ['BaseParameters', 'terminal_site_name', 'SiteNode', 'LineSitesEdge',
            'compute_generator_inertias', 'sort_objects_by_name', 'get_objects',
            'make_full_object_name', 'build_network_graph', 'Node', 'Edge',
            'parse_sparse_matrix_file', 'parse_Amat_vars_file', 'parse_Jacobian_vars_file',
-           'combine_output_spectra']
+           'combine_output_spectra', 'activate_project', 'print_network_info']
 
 
 class BaseParameters (tables.IsDescription):
@@ -462,19 +462,22 @@ def run_power_flow(app, project_folder=None, study_case_name=None, verbose=False
         study_case.Activate()
         if verbose: print(f'Successfully activated study case {study_case_name}.')
     power_flow = app.GetFromStudyCase('ComLdf')
+    import pdb
+    pdb.set_trace()
+    power_flow.iopt_pq = True
     err = power_flow.Execute()
     if err:
         raise Exception('Cannot run load flow')
     if verbose: print('Successfully run load flow.')
     results = {key: {} for key in ('SMs', 'SGs', 'buses', 'loads', 'lines', 'transformers')}
     
-    get_objects = lambda clss: [obj for obj in app.GetCalcRelevantObjects('*.' + clss) \
-                                if not obj.outserv]
+    # get_objects = lambda clss: [obj for obj in app.GetCalcRelevantObjects('*.' + clss) \
+    #                             if not obj.outserv]
         
     # NOTE: the ``1`` in the variable names below indicates that it's a
     # positive-sequence quantity
     Ptot, Qtot = 0, 0
-    for sm in get_objects('ElmSym'):
+    for sm in get_objects(app, 'ElmSym'):
         pq = [sm.GetAttribute(f'm:{c}sum:bus1') for c in 'PQ'] # [MW,Mvar]
         results['SMs'][sm.loc_name] = {
             'P':      pq[0], # [MW]
@@ -498,7 +501,7 @@ def run_power_flow(app, project_folder=None, study_case_name=None, verbose=False
     results['SMs']['Qtot'] = Qtot
 
     Ptot, Qtot = 0, 0
-    for sg in get_objects('ElmGenStat'):
+    for sg in get_objects(app, 'ElmGenStat'):
         pq = [sg.GetAttribute(f'm:{c}sum:bus1') for c in 'PQ']
         results['SGs'][sg.loc_name] = {
             'P': pq[0],
@@ -510,7 +513,7 @@ def run_power_flow(app, project_folder=None, study_case_name=None, verbose=False
     results['SGs']['Qtot'] = Qtot
 
     Ptot, Qtot = 0, 0
-    for load in get_objects('ElmLod'):
+    for load in get_objects(app, 'ElmLod'):
         pq = [load.GetAttribute(f'm:{c}sum:bus1') for c in 'PQ']
         results['loads'][load.loc_name] = {
             'P':      pq[0], # [MW]
@@ -534,7 +537,7 @@ def run_power_flow(app, project_folder=None, study_case_name=None, verbose=False
     results['loads']['Qtot'] = Qtot
     
     power_types = ['gen','load','flow','out']
-    for bus in get_objects('ElmTerm'):
+    for bus in get_objects(app, 'ElmTerm'):
         try:
             results['buses'][bus.loc_name] = {
                 'ur':     bus.GetAttribute('m:u1r'),     # [pu]
@@ -552,7 +555,7 @@ def run_power_flow(app, project_folder=None, study_case_name=None, verbose=False
 
     Ptot = {'bus1': 0, 'bus2': 0}
     Qtot = {'bus1': 0, 'bus2': 0}
-    for line in get_objects('ElmLne'):
+    for line in get_objects(app, 'ElmLne'):
         P1 = line.GetAttribute('m:Psum:bus1')
         Q1 = line.GetAttribute('m:Qsum:bus1')
         P2 = line.GetAttribute('m:Psum:bus2')
@@ -570,7 +573,7 @@ def run_power_flow(app, project_folder=None, study_case_name=None, verbose=False
 
     results['transformers']['Ptot'] = {'bushv': 0, 'buslv': 0}
     results['transformers']['Qtot'] = {'bushv': 0, 'buslv': 0}
-    for trans in get_objects('ElmTr2'):
+    for trans in get_objects(app, 'ElmTr2'):
         results['transformers'][trans.loc_name] = {}
         has_attrs = True
         for pq in 'PQ':
@@ -784,3 +787,40 @@ def combine_output_spectra(output_spectra, input_names, output_names, load_names
         else:
             print(f"Unknown variable type '{var_types[i]}'.")
     return spectra
+
+
+def activate_project(app, project_name, study_case_name=None, verbose=False):   
+    ### Activate the project
+    err = app.ActivateProject(project_name)
+    if err:
+        raise Exception(f'Cannot activate project "{project_name}".')
+    if verbose: print(f'Activated project "{project_name}".')
+    ### Get the active project
+    project = app.GetActiveProject()
+    if project is None:
+        raise Exception('Cannot get active project.')
+    if study_case_name is not None:
+        study_case_folder = app.GetProjectFolder('study')
+        study_cases = study_case_folder.GetContents('*.IntCase', 0)
+        for study_case in study_cases:
+            if study_case.loc_name == study_case_name:
+                err = study_case.Activate()
+                if verbose: print(f'Activated study case "{study_case_name}".')
+                return project, study_case
+    return project, None
+
+
+def print_network_info(app):
+    ### Get some info over the network
+    generators = get_objects(app, '*.ElmSym')
+    lines = get_objects(app, '*.ElmLne')
+    buses = get_objects(app, '*.ElmTerm')
+    loads = get_objects(app, '*.ElmLod')
+    transformers = get_objects(app, '*.ElmTr2')
+    n_generators, n_lines, n_buses = len(generators), len(lines), len(buses)
+    n_loads, n_transformers = len(loads), len(transformers)
+    print(f'There are {n_generators} generators.')
+    print(f'There are {n_lines} lines.')
+    print(f'There are {n_buses} buses.')
+    print(f'There are {n_loads} loads.')
+    print(f'There are {n_transformers} transformers.')
