@@ -7,10 +7,8 @@
 		"ElmSym": []
 	},
 	"synch_mach": {
-		"G 02": {"typ_id.h": 4.329},
-		"G 07": {"typ_id.h": 10}
+		"G 07": {"typ_id.h": 3.771}
 	},
-	"parameters_to_save": ["Ta"],
 	"coiref": "element",
-	"outdir": "C:\\Users\\Terna_Inerzia\\Desktop\\modal_analysis\\IEEE39_GFM\\default_G7_H_10"
+	"outdir": "C:\\Users\\Terna_Inerzia\\Desktop\\modal_analysis\\IEEE39\\const_P\\G_07_h_8.771"
 }

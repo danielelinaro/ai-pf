@@ -1,0 +1,15 @@
+{
+	"db_name": "Terna_Inerzia",
+    "project_name": "9 Bus WSCC",
+	"study_case_name": "01- Load Flow",
+    "grid_name": "Grid",
+	"out_of_service": {
+		"ElmSym": []
+	},
+	"synch_mach": {
+		"G2": {"typ_id.h": 6.666666}
+	},
+	"parameters_to_save": [],
+	"coiref": "element",
+	"outdir": "C:\\Users\\Terna_Inerzia\\Desktop\\modal_analysis\\WSCC\\loads_A_B_C_const_P_stable\\G2_h_6.66"
+}

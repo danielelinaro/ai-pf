@@ -1,0 +1,15 @@
+{
+	"db_name": "Terna_Inerzia",
+    "project_name": "simple_case_globalH",
+	"study_case_name": "Study Case",
+    "grid_name": "Grid",
+	"out_of_service": {
+		"ElmSym": []
+	},
+	"synch_mach": {
+		"G2": {"typ_id.h": 3.5}
+	},
+	"parameters_to_save": [],
+	"coiref": "element",
+	"outdir": "C:\\Users\\Terna_Inerzia\\Desktop\\modal_analysis\\simple_case_globalH\\dynamic_load_const_I\\G2_h_3.5"
+}
