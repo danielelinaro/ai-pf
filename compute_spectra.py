@@ -230,6 +230,9 @@ if __name__ == '__main__':
     Jgy_inv = inv(Jgy)
     A = Jfx - (Jfy @ Jgy_inv @ Jgx if use_at_matmul else np.dot(np.dot(Jfy, Jgy_inv), Jgx))
     assert np.allclose(A, Amat), 'Error in the computation of the matrix A'
+    eig, _ = np.linalg.eig(A)
+    if any(eig.real > 0):
+        print('>>> Some eigenvalues are positive, results may not be accurate <<<')
     B = - (Jfy @ Jgy_inv if use_at_matmul else np.dot(Jfy, Jgy_inv))
     C = - (Jgy_inv @ Jgx if use_at_matmul else np.dot(Jgy_inv, Jgx))
     D = - Jgy_inv
