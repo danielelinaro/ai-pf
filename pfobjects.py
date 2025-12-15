@@ -13,8 +13,8 @@ __all__ = ['AutomaticVoltageRegulator', 'TurbineGovernor',
 
 
 def _bus_name_to_terminal_name(bus):
-    #return 'bus{}'.format(int(re.findall('\d+', bus)[0]))
-    return 'term_{}'.format(bus.lower())
+    return 'bus{}'.format(int(re.findall('\d+', bus)[0]))
+    #return 'term_{}'.format(bus.lower().replace(' ', '_'))
 
 
 def _read_element_parameters(element, par_names=None, type_par_names=None, bus_names=['bus1']):

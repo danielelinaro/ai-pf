@@ -462,8 +462,6 @@ def run_power_flow(app, project_folder=None, study_case_name=None, verbose=False
         study_case.Activate()
         if verbose: print(f'Successfully activated study case {study_case_name}.')
     power_flow = app.GetFromStudyCase('ComLdf')
-    import pdb
-    pdb.set_trace()
     power_flow.iopt_pq = True
     err = power_flow.Execute()
     if err:
@@ -637,7 +635,7 @@ def print_power_flow(results):
     print('\n======= Buses ========')
     for name in sorted(list(results['buses'].keys())):
         data = results['buses'][name]
-        print(f'{name}: voltage = {data["voltage"]:5.3f} pu, V = {data["Vl"]:7.3f} kV, ' + \
+        print(f'{name}: u = {data["u"]:5.3f} pu, V = {data["Vl"]:7.3f} kV, ' + \
               f'Pflow = {data["P"]["flow"]*coeff:7.2f} {unit}W, Qflow = {data["Q"]["flow"]*coeff:7.2f} {unit}VA.')
 
 
