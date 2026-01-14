@@ -366,10 +366,10 @@ def get_simulation_time(res, vector, interval=(0,None), dt=None, decimation=1):
 get_simulation_dt = lambda res: np.diff([res.GetValue(i, -1)[1] for i in range(2)])[0]
 
 
-get_ID = lambda elem: int(re.findall('\d+', elem.loc_name)[0])
+get_ID = lambda elem: int(re.findall('[0-9]+', elem.loc_name)[0])
 
 
-get_line_bus_IDs = lambda line: tuple(map(int, re.findall('\d+', line.loc_name)))
+get_line_bus_IDs = lambda line: tuple(map(int, re.findall('[0-9]+', line.loc_name)))
 
 
 def normalize(x):
@@ -651,7 +651,7 @@ def parse_sparse_matrix_file(filename, sparse=False, one_based_indexes=True):
 
 
 def _parse_line(line):
-    col_match = re.search('\d+', line)
+    col_match = re.search('[0-9]+', line)
     col = int(col_match.group()) - 1
     var_name_match = re.search('".*"', line)
     var_name = var_name_match.group()[1:-1]

@@ -20,6 +20,7 @@ def usage(exit_code=None):
     print(prefix + '[-N | --n-steps <value>] [--F0 <value>] [--use-numpy-inv]')
     print(prefix + '[-o | --outfile <value>] [-f | --force] [--tau <value>]')
     print(prefix + '[--ref-sm <name>] [--no-add-TF] <--dP | --sigmaP value1<,value2,...>>')
+    print(prefix + '[--S-base <value>] [--load-exp <0, 1, 2 for const P, I, Z respectively>]')
     print(prefix + '<-L | --loads load1<,load2,...> | filename>')
     print(prefix + '<-V | --vars-to-save var1<,var2,...> | filename>')
     print(prefix + '[--save-mat] [-v | --verbose] AC_data_file')
@@ -49,6 +50,8 @@ if __name__ == '__main__':
     use_numpy_inv = False
     save_mat = False
     verbose = False
+    S_base = 1 # [MVA]
+    load_exp = 0 # constant P: 0, constant I: 1, constant Z: 2
 
     i = 1
     N_args = len(sys.argv)
@@ -119,6 +122,12 @@ if __name__ == '__main__':
                 save_mat = True
             except:
                 raise Warning('scipy not available: will not save MAT file')
+        elif arg == '--S-base':
+            i += 1
+            S_base = float(sys.argv[i])
+        elif arg == '--load-exp':
+            i += 1
+            load_exp = int(sys.argv[i])
         elif arg[0] == '-':
             print(f'{progname}: unknown option `{arg}`.')
             sys.exit(1)
@@ -174,6 +183,14 @@ if __name__ == '__main__':
 
     if input_loads is None:
         print(f'{progname}: you must specify the name of at least one load where the signal is injected.')
+        sys.exit(1)
+
+    if S_base <= 0:
+        print(f'{progname}: Sbase must be > 0.')
+        sys.exit(1)
+
+    if load_exp not in (0, 1, 2):
+        print(f'{progname}: load exponent must be 0, 1, or 2 for constant P, I, and Z, respectively.')
         sys.exit(1)
 
     if use_numpy_inv:
@@ -232,7 +249,8 @@ if __name__ == '__main__':
     assert np.allclose(A, Amat), 'Error in the computation of the matrix A'
     eig, _ = np.linalg.eig(A)
     if any(eig.real > 0):
-        print('>>> Some eigenvalues are positive, results may not be accurate <<<')
+        print('>>> Some eigenvalues are positive (max value: {:.3e}), results may not be accurate <<<'.\
+              format(max(eig.real)))
     B = - (Jfy @ Jgy_inv if use_at_matmul else np.dot(Jfy, Jgy_inv))
     C = - (Jgy_inv @ Jgx if use_at_matmul else np.dot(Jgy_inv, Jgx))
     D = - Jgy_inv
@@ -299,8 +317,12 @@ if __name__ == '__main__':
         if verbose:
             print(f'[{i+1:2d}] {bus_name} -> {full_bus_name} {flag}')
 
+        P0_pu = PF_loads[input_load]['P'] / S_base
+        print("P of load '{}': {:g} MW ({:g} p.u.).".format(input_load, P0_pu * S_base, P0_pu))
         ur, ui = PF['buses'][bus_name]['ur'], PF['buses'][bus_name]['ui']
-        den = np.abs(ur + 1j * ui) ** 2
+        u_abs = np.abs(ur + 1j * ui)
+        u_abs2 = u_abs ** 2
+        coeff = P0_pu / u_abs2 * (u_abs ** load_exp)
         key = f'{grid_name}-{input_load}.ElmLod'
         for j, suffix in enumerate('ri'):
             if key not in vars_idx:
@@ -311,7 +333,7 @@ if __name__ == '__main__':
             assert len(cols) == 1
             col = cols[0]
             input_rows[input_load][j] = int(np.argmin(np.abs(J[:, col] - (-1))))
-            coeffs[input_load][j] = PF['buses'][bus_name][f'u{suffix}'] / den
+            coeffs[input_load][j] = PF['buses'][bus_name][f'u{suffix}'] * coeff
             if verbose:
                 print("Variable 'i{}' of object '{}' is at column {}: equation #{}.".\
                       format(suffix, input_load, col + 1, input_rows[input_load][j] + 1))
