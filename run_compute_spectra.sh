@@ -84,6 +84,18 @@ elif [ "$network" = "WSCC" ] ; then
 	"loads_B_C_D_const_P_load_A_const_Z"
     )
     for cond in ${conds[@]} ; do
+	[[ $cond =~ "const_Z" ]]
+	if [ ${#BASH_REMATCH[@]} -gt 0 ] ; then
+	    exp=2
+	else
+	    [[ $cond =~ "const_I" ]]
+	    if [ ${#BASH_REMATCH[@]} -gt 0 ] ; then
+		exp=1
+	    else
+		exp=0
+	    fi
+	fi
+	echo "Load exponent for condition '${cond}': ${exp}."
 	for h in 3.33 6.66 ; do
 	    dir="data/${network}/${cond}/G2_h_${h}"
 	    infile="${dir}/${npz}"
@@ -91,7 +103,7 @@ elif [ "$network" = "WSCC" ] ; then
 		suffix=`echo $loads | tr ', ' '_'`
 		outfile=`echo ${infile%.npz}_TF_${fmin}.0_${fmax}.0_${N}_${dP}_${suffix}.npz | tr ' ' '_'`
 		python3 compute_spectra.py -N $N --fmin $fmin --fmax $fmax --ref-sm "$slack" \
-			--dP $dP -L "$loads" -o "$outfile" --save-mat "$infile"
+			--dP $dP -L "$loads" -o "$outfile" --save-mat --load-exp $exp -f "$infile"
 	    else
 		echo "$infile: no such file."
 	    fi
