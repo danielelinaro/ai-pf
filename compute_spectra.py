@@ -22,6 +22,7 @@ def usage(exit_code=None):
     print(prefix + '[--ref-sm <name>] [--no-add-TF] <--dP | --sigmaP value1<,value2,...>>')
     print(prefix + '[--S-base <value>] [--load-exp <0, 1, 2 for const P, I, Z respectively>]')
     print(prefix + '<-L | --loads load1<,load2,...> | filename>')
+    print(prefix + '<-I | --inputs filename>')
     print(prefix + '<-V | --vars-to-save var1<,var2,...> | filename>')
     print(prefix + '[--save-mat] [-v | --verbose] AC_data_file')
     if exit_code is not None:
@@ -38,6 +39,7 @@ if __name__ == '__main__':
     force = False
     outdir, outfile = '', None
     input_loads = None
+    input_keys = None
     vars_to_save = None
     dP = []
     sigmaP = []
@@ -73,12 +75,28 @@ if __name__ == '__main__':
             v = sys.argv[i]
             if os.path.isfile(v):
                 if os.path.splitext(v)[1] == '.json':
-                    input_loads = json.load(open(v,'r'))['input_loads']
+                    input_loads = json.load(open(v, 'r'))['input_loads']
                 else:
                     with open(v, 'r') as fid:
                         input_loads = [l.strip() for l in fid]
             else:
                 input_loads = v.split(',')
+        elif arg in ('-I', '--inputs'):
+            i += 1
+            fname = sys.argv[i]
+            if not os.path.isfile(fname):
+                print(f'{fname}: no such file.')
+                sys.exit(1)
+            with open(fname, 'r') as fid:
+                input_keys = []
+                input_var_names = []
+                for line in fid:
+                    try:
+                        device_name, device_type, var_name, block_name = line.strip().split(',')
+                        input_keys.append('{}{}.{}'.format(block_name + '-' if len(block_name) else '', device_name, device_type))
+                        input_var_names.append(var_name)
+                    except:
+                        pass
         elif arg in ('-V', '--vars-to-save'):
             i += 1
             v = sys.argv[i]
@@ -181,8 +199,8 @@ if __name__ == '__main__':
         print(f'{progname}: F0 must be > 0.')
         sys.exit(1)
 
-    if input_loads is None:
-        print(f'{progname}: you must specify the name of at least one load where the signal is injected.')
+    if input_loads is None and input_keys is None:
+        print(f'{progname}: you must specify the name of at least one load or input where the signal is injected.')
         sys.exit(1)
 
     if S_base <= 0:
@@ -249,7 +267,7 @@ if __name__ == '__main__':
     assert np.allclose(A, Amat), 'Error in the computation of the matrix A'
     eig, _ = np.linalg.eig(A)
     if any(eig.real > 0):
-        print('>>> Some eigenvalues are positive (max value: {:.3e}), results may not be accurate <<<'.\
+        print('>>> Some eigenvalues are positive (max value: {:.3e}): results may be inaccurate! <<<'.\
               format(max(eig.real)))
     B = - (Jfy @ Jgy_inv if use_at_matmul else np.dot(Jfy, Jgy_inv))
     C = - (Jgy_inv @ Jgx if use_at_matmul else np.dot(Jgy_inv, Jgx))
@@ -259,100 +277,111 @@ if __name__ == '__main__':
     print('Shape of C: {}'.format(C.shape))
     print('Shape of D: {}'.format(D.shape))
 
-    load_buses = data['load_buses'].item()
-    all_load_names = []
-    all_dP, all_sigmaP = [], []
-    def try_append(dst, src, i):
+    def _try_append(dst, src, i):
         try: dst.append(src[i])
         except: pass
-    for i,input_load in enumerate(input_loads):
-        if '*' in input_load:
-            for load in load_buses.keys():
-                if re.match(input_load, load):
-                    all_load_names.append(load)
-                    try_append(all_dP, dP, i)
-                    try_append(all_sigmaP, sigmaP, i)
-        elif input_load not in load_buses:
-            print(f'{progname}: cannot find load `{input_load}`.')
-            sys.exit(0)
-        else:
-            all_load_names.append(input_load)
-            try_append(all_dP, dP, i)
-            try_append(all_sigmaP, sigmaP, i)
-    input_loads = all_load_names
-    dP, sigmaP = all_dP, all_sigmaP
-    def fix_len(lst1, lst2):
+
+    def _fix_len(lst1, lst2):
         if len(lst1) == 1 and len(lst2) > 1:
             return lst1*len(lst2)
         return lst1
-    dP = fix_len(dP, input_loads)
-    sigmaP = fix_len(sigmaP, input_loads)
 
-    PF_loads = PF['loads']
-    mu, c, alpha = [], [], []
     full_element_names = list(vars_idx.keys())
     grid_name = full_element_names[0].split('-')[0]
     print(f'Grid name: {grid_name}.')
     element_names = list(map(lambda s: s.split('.')[0].split('-')[-1], full_element_names))
     bus_equiv_terms = data['bus_equiv_terms'].item()
-    input_rows = {ld: np.zeros(2, dtype=int) for ld in input_loads}
-    coeffs = {ld: np.zeros(2, dtype=float) for ld in input_loads}
-    for i, input_load in enumerate(input_loads):
-        found = False
-        bus_name = load_buses[input_load]
-        if bus_name in element_names:
-            full_bus_name = full_element_names[element_names.index(bus_name)]
-            found = True
-            flag = ''
-        else:
-            for equiv_term in bus_equiv_terms[bus_name]:
-                if equiv_term in element_names:
-                    full_bus_name = full_element_names[element_names.index(equiv_term)]
-                    found = True
-                    flag = '*'
-                    break
-        if not found:
-            print(f"Variable index for '{bus_name}' not found.")
-            continue
-        if verbose:
-            print(f'[{i+1:2d}] {bus_name} -> {full_bus_name} {flag}')
 
-        P0_pu = PF_loads[input_load]['P'] / S_base
-        print("P of load '{}': {:g} MW ({:g} p.u.).".format(input_load, P0_pu * S_base, P0_pu))
-        ur, ui = PF['buses'][bus_name]['ur'], PF['buses'][bus_name]['ui']
-        u_abs = np.abs(ur + 1j * ui)
-        u_abs2 = u_abs ** 2
-        coeff = P0_pu / u_abs2 * (u_abs ** load_exp)
-        key = f'{grid_name}-{input_load}.ElmLod'
-        for j, suffix in enumerate('ri'):
-            if key not in vars_idx:
-                keys = [key for key in vars_idx if input_load in key]
-                assert len(keys) == 1
-                key = keys[0]
-            cols = vars_idx[key]['i' + suffix]
-            assert len(cols) == 1
-            col = cols[0]
-            input_rows[input_load][j] = int(np.argmin(np.abs(J[:, col] - (-1))))
-            coeffs[input_load][j] = PF['buses'][bus_name][f'u{suffix}'] * coeff
+    input_rows = {}
+    injection_coeffs = {}
+    if input_loads is not None:
+        load_buses = data['load_buses'].item()
+        all_load_names = []
+        all_dP, all_sigmaP = [], []
+        for i, input_load in enumerate(input_loads):
+            if '*' in input_load:
+                for load in load_buses.keys():
+                    if re.match(input_load, load):
+                        all_load_names.append(load)
+                        _try_append(all_dP, dP, i)
+                        _try_append(all_sigmaP, sigmaP, i)
+            elif input_load not in load_buses:
+                print(f'{progname}: cannot find load `{input_load}`.')
+                sys.exit(0)
+            else:
+                all_load_names.append(input_load)
+                _try_append(all_dP, dP, i)
+                _try_append(all_sigmaP, sigmaP, i)
+        input_loads = all_load_names
+        dP, sigmaP = all_dP, all_sigmaP
+        dP = _fix_len(dP, input_loads)
+        sigmaP = _fix_len(sigmaP, input_loads)
+
+        input_rows.update({ld: np.zeros(2, dtype=int) for ld in input_loads})
+        injection_coeffs.update({ld: np.zeros(2, dtype=float) for ld in input_loads})
+        PF_loads = PF['loads']
+        mu, c, alpha = {}, {}, {}
+        for i, input_load in enumerate(input_loads):
+            found = False
+            bus_name = load_buses[input_load]
+            if bus_name in element_names:
+                full_bus_name = full_element_names[element_names.index(bus_name)]
+                found = True
+                flag = ''
+            else:
+                for equiv_term in bus_equiv_terms[bus_name]:
+                    if equiv_term in element_names:
+                        full_bus_name = full_element_names[element_names.index(equiv_term)]
+                        found = True
+                        flag = '*'
+                        break
+            if not found:
+                print(f"Variable index for '{bus_name}' not found.")
+                continue
             if verbose:
-                print("Variable 'i{}' of object '{}' is at column {}: equation #{}.".\
-                      format(suffix, input_load, col + 1, input_rows[input_load][j] + 1))
+                print(f'[{i+1:2d}] {bus_name} -> {full_bus_name} {flag}')
 
-        mean = PF_loads[input_load]['P']
-        if len(dP) > 0:
-            stddev = dP[i] * abs(mean)
-        else:
-            stddev = sigmaP[i]
-        mu.append(mean)
-        c.append(stddev * np.sqrt(2. / tau))
-        alpha.append(1. / tau)
+            P0_pu = PF_loads[input_load]['P'] / S_base
+            print("P of load '{}': {:g} MW ({:g} p.u.).".format(input_load, P0_pu * S_base, P0_pu))
+            ur, ui = PF['buses'][bus_name]['ur'], PF['buses'][bus_name]['ui']
+            u_abs = np.abs(ur + 1j * ui)
+            u_abs2 = u_abs ** 2
+            coeff = P0_pu / u_abs2 * (u_abs ** load_exp)
+            key = f'{grid_name}-{input_load}.ElmLod'
+            for j, suffix in enumerate('ri'):
+                if key not in vars_idx:
+                    keys = [key for key in vars_idx if input_load in key]
+                    assert len(keys) == 1
+                    key = keys[0]
+                cols = vars_idx[key]['i' + suffix]
+                assert len(cols) == 1
+                col = cols[0]
+                input_rows[input_load][j] = int(np.argmin(np.abs(J[:, col] - (-1))))
+                injection_coeffs[input_load][j] = PF['buses'][bus_name][f'u{suffix}'] * coeff
+                if verbose:
+                    print("Variable 'i{}' of object '{}' is at column {}: equation #{}.".\
+                          format(suffix, input_load, col + 1, input_rows[input_load][j] + 1))
 
-    mu, c, alpha = np.array(mu), np.array(c), np.array(alpha)
-    
-    N_inputs = c.size
+            mean = PF_loads[input_load]['P']
+            if len(dP) > 0:
+                stddev = dP[i] * abs(mean)
+            else:
+                stddev = sigmaP[i]
+            mu[input_load] = mean
+            c[input_load] = stddev * np.sqrt(2. / tau)
+            alpha[input_load] = 1. / tau
+
+    if input_keys is not None:
+        for inp_key, var_name in zip(input_keys, input_var_names):
+            key = inp_key + '.' + var_name
+            input_rows[key] = vars_idx[grid_name + '-' + inp_key][var_name]
+            injection_coeffs[key] = 1.
+
+    N_inputs = len(input_rows)
+
     I = np.eye(N_state_vars)
     # the transfer functions are complex numbers
-    TF  = np.zeros((N_freq, N_inputs, N_state_vars + N_algebraic_vars), dtype=complex)
+    TF = np.zeros((N_freq, N_inputs, N_state_vars + N_algebraic_vars), dtype=complex)
     # the absolute value of the spectra of the outputs are real numbers:
     # we will take the abs at the end of the function
     OUT = np.zeros_like(TF)
@@ -360,34 +389,35 @@ if __name__ == '__main__':
     for i in tqdm(range(N_freq), ascii=True, ncols=70):
         M = 1j * 2 * np.pi * F[i] * I - A # sI - A
         MinvxB = np.dot(inv(M), B)        # (sI - A)^-1 x B
-        for j, input_load in enumerate(input_loads):
-            psd = np.sqrt((c[j] / alpha[j])**2 / (1 + (2 * np.pi * F[i] / alpha[j])**2))
+        for j, (key, rows) in enumerate(input_rows.items()):
             v = np.zeros(N_algebraic_vars)
-            v[input_rows[input_load] - N_state_vars] = 1.
-            v[input_rows[input_load] - N_state_vars] *= coeffs[input_load]
+            v[rows - N_state_vars] = 1.
+            v[rows - N_state_vars] *= injection_coeffs[key]
             TF[i, j, :N_state_vars] = MinvxB @ v if use_at_matmul else np.dot(MinvxB, v)
-            TF[i, j, N_state_vars:] = ((C @ MinvB) + D) @ v if use_at_matmul else np.dot(np.dot(C, MinvxB) + D, v)
-            v[input_rows[input_load] - N_state_vars] = psd
-            v[input_rows[input_load] - N_state_vars] *= coeffs[input_load]
-            OUT[i, j, :N_state_vars] = MinvxB @ v if use_at_matmul else np.dot(MinvxB, v)
-            OUT[i, j, N_state_vars:] = ((C @ MinvxB) + D) @ v if use_at_matmul else np.dot(np.dot(C, MinvxB) + D, v)
+            TF[i, j, N_state_vars:] = ((C @ MinvxB) + D) @ v if use_at_matmul else np.dot(np.dot(C, MinvxB) + D, v)
+            if key in alpha:
+                psd = np.sqrt((c[key] / alpha[key])**2 / (1 + (2 * np.pi * F[i] / alpha[key])**2))
+                v[rows - N_state_vars] = psd
+                v[rows - N_state_vars] *= injection_coeffs[key]
+                OUT[i, j, :N_state_vars] = MinvxB @ v if use_at_matmul else np.dot(MinvxB, v)
+                OUT[i, j, N_state_vars:] = ((C @ MinvxB) + D) @ v if use_at_matmul else np.dot(np.dot(C, MinvxB) + D, v)
 
     var_names, idx = [], []
-    for k1,D in vars_idx.items():
-        for k2,V in D.items():
+    for k1, D in vars_idx.items():
+        for k2, V in D.items():
             k = k1 + '.' + k2
             for v in V:
                 var_names.append(k)
                 idx.append(v)
     var_names = [var_names[i] for i in np.argsort(idx)]
 
-    TF[TF == 0] = 1e-20 * (1+1j)
-    OUT[OUT == 0] = 1e-20 * (1+1j)
+    TF[TF == 0] = 1e-20 * (1 + 1j)
+    OUT[OUT == 0] = 1e-20 * (1 + 1j)
 
     if compute_additional_TFs:
         if ref_SM_name is None:
             print('Please select the synchronous machine to be used as a reference:')
-            for i,SM_name in enumerate(SM_names):
+            for i, SM_name in enumerate(SM_names):
                 print('[{:2d}] {}'.format(i+1, SM_name))
             while True:
                 try:

@@ -84,10 +84,6 @@ def usage(progname, exit_code=None):
 if __name__ == '__main__':
 
     progname = os.path.basename(sys.argv[0])
-    from glob import glob
-    SM_info = {}
-    for f in glob('*_SM_info.json'):
-        SM_info.update(json.load(open(f, 'r')))
 
     # default values
     data_file = None
@@ -173,6 +169,12 @@ if __name__ == '__main__':
     if os.path.isfile(os.path.join(outdir, outfile)) and not force:
         print(f'{progname}: {os.path.join(outdir, outfile)}: file exists, use -f to overwrite.')
         sys.exit(1)
+
+    from glob import glob
+    SM_info = {}
+    for f in glob('*_SM_info.json'):
+        with open(f, 'r') as fid:
+            SM_info.update(json.load(fid))
 
     data = np.load(data_file, allow_pickle=True)
     F = data['F']
