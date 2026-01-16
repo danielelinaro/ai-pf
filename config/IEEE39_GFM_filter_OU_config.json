@@ -1,0 +1,28 @@
+{
+    "input_loads": [
+	"Load 03"
+    ],
+    "var_names": [
+	"Grid-G 01.ElmSym.speed",
+	"Grid-G 01.ElmSym.ir",
+	"Grid-G 01.ElmSym.ii",
+	"Grid-G 02.ElmSym.speed",
+	"Grid-G 02.ElmSym.ir",
+	"Grid-G 02.ElmSym.ii",
+	"Grid-Bus 03.ElmTerm.ur",
+	"Grid-Bus 03.ElmTerm.ui",
+	"Grid-Bus 03.ElmTerm.fe",
+	"Grid-Bus 04.ElmTerm.ur",
+	"Grid-Bus 04.ElmTerm.ui",
+	"Grid-Bus 04.ElmTerm.fe",
+	"Grid-Load 03.ElmLod.ir",
+	"Grid-Load 03.ElmLod.ii",
+	"Grid-Load 04.ElmLod.ir",
+	"Grid-Load 04.ElmLod.ii",
+	"Grid-Genstat_38.ElmGenstat.xspeed"
+    ],
+    "seed": 1983,
+    "tend": 3600,
+    "sampling_rate": 200,
+    "block_dur": 3600
+}

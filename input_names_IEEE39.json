@@ -1,0 +1,11 @@
+{
+    "SGs": {
+	"Genstat_38": {
+	    "device_name": "pref_buffer_38",
+	    "device_type": "ElmDsl",
+	    "var_name": "pref_out",
+	    "block_name": "GFM_38"
+	}
+    }
+}
+

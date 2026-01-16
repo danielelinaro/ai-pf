@@ -149,7 +149,8 @@ if __name__ == '__main__':
         print(f'{progname}: {config_file}: no such file.')
         sys.exit(1)
 
-    config = json.load(open(config_file, 'r'))
+    with open(config_file) as fid:
+        config = json.load(fid)
     if data_file is None:
         data_file = config['data_file']
 
@@ -173,7 +174,7 @@ if __name__ == '__main__':
     from glob import glob
     SM_info = {}
     for f in glob('*_SM_info.json'):
-        with open(f, 'r') as fid:
+        with open(f) as fid:
             SM_info.update(json.load(fid))
 
     data = np.load(data_file, allow_pickle=True)
@@ -188,7 +189,8 @@ if __name__ == '__main__':
             var_names_file = var_names
         else:
             var_names_file = os.path.join(os.path.dirname(config_file), var_names)
-        var_names = json.load(open(var_names_file))['var_names']
+        with open(var_names_file) as fid:
+            var_names = json.load(fid)['var_names']
     else:
         var_names_file = None
     vars_idx = []
@@ -209,8 +211,8 @@ if __name__ == '__main__':
     loads_idx = np.array([all_load_names.index(load_name) for load_name in load_names])
     # mean has to be zero because we are simulating small signal fluctuations around the mean
     mu = np.zeros(N_loads)
-    c = data['c'][loads_idx]
-    alpha = data['alpha'][loads_idx]
+    c = np.array([data['c'].item()[name] for name in load_names])
+    alpha = np.array([data['alpha'].item()[name] for name in load_names])
     if tend is None:
         tend = config['tend']
     srate = config['sampling_rate']
@@ -235,11 +237,11 @@ if __name__ == '__main__':
         U[i,:] = OU_2(dt, alpha[i], mu[i], c[i], N_samples, random_state=rs[i])
 
     print('(Vector) fitting the TFs...')
-    # data['TF'][:,loads_idx,vars_idx] does not return what you would expect...
+    # data['TF'][:, loads_idx, vars_idx] does not return what you would expect...
     # we need to do this:
-    J,K = np.meshgrid(loads_idx, vars_idx, indexing='ij')
-    TF = data['TF'][:,J,K]
-    shp = N_vars,N_loads
+    J, K = np.meshgrid(loads_idx, vars_idx, indexing='ij')
+    TF = data['TF'][:, J, K]
+    shp = N_vars, N_loads
     N_poles = np.zeros(shp, dtype=int)
     rms_err = np.zeros(shp)
     rms_thresh = np.zeros(shp)
@@ -248,30 +250,30 @@ if __name__ == '__main__':
     max_N_poles = 50
     for i in iter_fun(range(N_vars)):
         for j in range(N_loads):
-            tf = TF[:,j,i]
-            rms_thresh[i,j] = 10 ** (np.floor(np.log10(np.abs(tf).mean())) - 3)
+            tf = TF[:, j, i]
+            rms_thresh[i, j] = 10 ** (np.floor(np.log10(np.abs(tf).mean())) - 3)
             for n in range(max_N_poles):
-                SER, _, rms_err[i,j], fit[i,j,:] = run_vf(tf, F, n+1)
-                if abs(rms_err[i,j]) < rms_thresh[i,j]:
+                SER, _, rms_err[i, j], fit[i, j, :] = run_vf(tf, F, n + 1)
+                if abs(rms_err[i, j]) < rms_thresh[i, j]:
                     break
-            N_poles[i,j] = n+1
-            systems[i].append(lti(SER['A'],SER['B'],SER['C'],SER['D']))
+            N_poles[i, j] = n + 1
+            systems[i].append(lti(SER['A'], SER['B'], SER['C'], SER['D']))
 
     print('Computing the output time series...')
-    Y = np.zeros((N_vars,N_samples))
+    Y = np.zeros((N_vars, N_samples))
     for i in iter_fun(range(N_vars)):
         y_all = []
-        for S,u in zip(systems[i],U):
-            _,y,_ = lsim(S,u,time)
+        for S, u in zip(systems[i], U):
+            _, y, _ = lsim(S, u, time)
             assert y.imag.max() < 1e-6
             y_all.append(y.real)
-        Y[i,:] = np.sum(y_all, axis=0)
+        Y[i, :] = np.sum(y_all, axis=0)
 
     print('Computing the power spectral densities of the outputs...')
-    window = min(int(200/dt), N_samples//2)
+    window = min(int(200 / dt), N_samples // 2)
     onesided = True
-    freq,P_Y,abs_Y = run_welch(Y, dt, window, onesided)
-    _,P_U,abs_U = run_welch(U, dt, window, onesided)
+    freq, P_Y, abs_Y = run_welch(Y, dt, window, onesided)
+    _, P_U, abs_U = run_welch(U, dt, window, onesided)
 
     print('Combining the output spectra...')
     OUT = data['OUT']

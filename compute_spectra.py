@@ -39,7 +39,7 @@ if __name__ == '__main__':
     force = False
     outdir, outfile = '', None
     input_loads = None
-    input_keys = None
+    inputs_dict = None
     vars_to_save = None
     dP = []
     sigmaP = []
@@ -88,15 +88,7 @@ if __name__ == '__main__':
                 print(f'{fname}: no such file.')
                 sys.exit(1)
             with open(fname, 'r') as fid:
-                input_keys = []
-                input_var_names = []
-                for line in fid:
-                    try:
-                        device_name, device_type, var_name, block_name = line.strip().split(',')
-                        input_keys.append('{}{}.{}'.format(block_name + '-' if len(block_name) else '', device_name, device_type))
-                        input_var_names.append(var_name)
-                    except:
-                        pass
+                inputs_dict = json.load(fid)
         elif arg in ('-V', '--vars-to-save'):
             i += 1
             v = sys.argv[i]
@@ -199,7 +191,7 @@ if __name__ == '__main__':
         print(f'{progname}: F0 must be > 0.')
         sys.exit(1)
 
-    if input_loads is None and input_keys is None:
+    if input_loads is None and inputs_dict is None:
         print(f'{progname}: you must specify the name of at least one load or input where the signal is injected.')
         sys.exit(1)
 
@@ -370,12 +362,21 @@ if __name__ == '__main__':
             mu[input_load] = mean
             c[input_load] = stddev * np.sqrt(2. / tau)
             alpha[input_load] = 1. / tau
+        N_loads = len(input_loads)
+    else:
+        N_loads = 0
 
-    if input_keys is not None:
-        for inp_key, var_name in zip(input_keys, input_var_names):
-            key = inp_key + '.' + var_name
-            input_rows[key] = vars_idx[grid_name + '-' + inp_key][var_name]
-            injection_coeffs[key] = 1.
+    if inputs_dict is not None:
+        for key, V in inputs_dict.items():
+            for loc_name, pars in V.items():
+                vars_key = '{}{}-{}.{}'.format(
+                    grid_name,
+                    '-' + pars['block_name'] if 'block_name' in pars else '',
+                    pars['device_name'],
+                    pars['device_type'],
+                )
+                input_rows[loc_name] = vars_idx[vars_key][pars['var_name']]
+                injection_coeffs[loc_name] = 1.
 
     N_inputs = len(input_rows)
 
@@ -384,7 +385,7 @@ if __name__ == '__main__':
     TF = np.zeros((N_freq, N_inputs, N_state_vars + N_algebraic_vars), dtype=complex)
     # the absolute value of the spectra of the outputs are real numbers:
     # we will take the abs at the end of the function
-    OUT = np.zeros_like(TF)
+    OUT = np.zeros((N_freq, N_loads, N_state_vars + N_algebraic_vars), dtype=complex)
 
     for i in tqdm(range(N_freq), ascii=True, ncols=70):
         M = 1j * 2 * np.pi * F[i] * I - A # sI - A
@@ -403,10 +404,10 @@ if __name__ == '__main__':
                 OUT[i, j, N_state_vars:] = ((C @ MinvxB) + D) @ v if use_at_matmul else np.dot(np.dot(C, MinvxB) + D, v)
 
     var_names, idx = [], []
-    for k1, D in vars_idx.items():
-        for k2, V in D.items():
+    for k1, D1 in vars_idx.items():
+        for k2, D2 in D1.items():
             k = k1 + '.' + k2
-            for v in V:
+            for v in D2:
                 var_names.append(k)
                 idx.append(v)
     var_names = [var_names[i] for i in np.argsort(idx)]
@@ -477,7 +478,8 @@ if __name__ == '__main__':
     Etot_SM = data['energy']
     Mtot_SM = data['momentum']
     out = {'A': A, 'F': F, 'TF': TF, 'OUT': OUT, 'var_names': var_names, 'SM_names': SM_names,
-           'static_gen_names': static_gen_names, 'bus_names': bus_names, 'input_loads': input_loads,
+           'static_gen_names': static_gen_names, 'bus_names': bus_names,
+           'input_loads': input_loads, 'input_names': list(input_rows),
            'Htot_SM': Htot_SM, 'Etot_SM': Etot_SM, 'Mtot_SM': Mtot_SM,
            'H_SM': H_SM, 'S_SM': S_SM, 'P_SM': P_SM, 'Q_SM': Q_SM,
            'S_SG': data['Ssg'].item(), 'DSL_params': data['DSL_params'].item(),
