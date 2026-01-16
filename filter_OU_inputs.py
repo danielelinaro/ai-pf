@@ -11,14 +11,13 @@ import sys
 import json
 import numpy as np
 from numpy.random import RandomState, SeedSequence, MT19937
-from scipy.signal import lti, lsim, welch
 from pfcommon import OU_2, combine_output_spectra
 import tables
 from tqdm import tqdm
 iter_fun = lambda it: tqdm(it, ascii=True, ncols=70)
 
 
-__all__ = ['run_vf', 'run_welch']
+__all__ = ['run_vf', 'fit_TF', 'filter_inputs', 'run_welch']
 
 
 def run_vf(X, F, n_poles, n_iter=3, weights=None, poles_guess=None, do_plot=False):
@@ -55,11 +54,47 @@ def run_vf(X, F, n_poles, n_iter=3, weights=None, poles_guess=None, do_plot=Fals
     return SER,poles,rmserr,fit
 
 
+def fit_TF(F, TF, max_N_poles=50, iter_fun=None):
+    from scipy.signal import lti
+    if iter_fun is None:
+        iter_fun = lambda i: i
+    N_samples, N_inputs, N_vars = TF.shape
+    fit = np.zeros((N_vars, N_inputs, N_samples), dtype=complex)
+    systems = [[] for _ in range(N_vars)]
+    for i in iter_fun(range(N_vars)):
+        for j in range(N_inputs):
+            tf = TF[:, j, i]
+            thresh = 10 ** (np.floor(np.log10(np.abs(tf).mean())) - 3)
+            for n in range(max_N_poles):
+                SER, _, RMSE, fit[i, j, :] = run_vf(tf, F, n + 1)
+                if abs(RMSE) <= thresh:
+                    break
+            systems[i].append(lti(SER['A'], SER['B'], SER['C'], SER['D']))
+    return systems, fit
+
+
+def filter_inputs(systems, U, t, iter_fun=None):
+    from scipy.signal import lsim
+    if iter_fun is None:
+        iter_fun = lambda i: i
+    N_vars = len(systems)
+    N_samples = len(t)
+    Y = np.zeros((N_vars, N_samples))
+    for i in iter_fun(range(N_vars)):
+        y_all = []
+        for S, u in zip(systems[i], U):
+            _, y, _ = lsim(S, u, t)
+            assert y.imag.max() < 1e-6
+            y_all.append(y.real)
+        Y[i, :] = np.sum(y_all, axis=0)
+    return Y
+
+
 def run_welch(x, dt, window, onesided):
     """
     Computes the PSD of a signal using Welch's method
     """
-    
+    from scipy.signal import welch
     freq,P = welch(x, 1/dt, window='hamming',
                    nperseg=window, noverlap=window/2,
                    return_onesided=onesided, scaling='density')
@@ -241,33 +276,10 @@ if __name__ == '__main__':
     # we need to do this:
     J, K = np.meshgrid(loads_idx, vars_idx, indexing='ij')
     TF = data['TF'][:, J, K]
-    shp = N_vars, N_loads
-    N_poles = np.zeros(shp, dtype=int)
-    rms_err = np.zeros(shp)
-    rms_thresh = np.zeros(shp)
-    fit = np.zeros((N_vars, N_loads, F.size), dtype=complex)
-    systems = [[] for _ in range(N_vars)]
-    max_N_poles = 50
-    for i in iter_fun(range(N_vars)):
-        for j in range(N_loads):
-            tf = TF[:, j, i]
-            rms_thresh[i, j] = 10 ** (np.floor(np.log10(np.abs(tf).mean())) - 3)
-            for n in range(max_N_poles):
-                SER, _, rms_err[i, j], fit[i, j, :] = run_vf(tf, F, n + 1)
-                if abs(rms_err[i, j]) < rms_thresh[i, j]:
-                    break
-            N_poles[i, j] = n + 1
-            systems[i].append(lti(SER['A'], SER['B'], SER['C'], SER['D']))
+    systems, fit = fit_TF(F, TF, iter_fun=iter_fun)
 
     print('Computing the output time series...')
-    Y = np.zeros((N_vars, N_samples))
-    for i in iter_fun(range(N_vars)):
-        y_all = []
-        for S, u in zip(systems[i], U):
-            _, y, _ = lsim(S, u, time)
-            assert y.imag.max() < 1e-6
-            y_all.append(y.real)
-        Y[i, :] = np.sum(y_all, axis=0)
+    Y = filter_inputs(systems, U, time, iter_fun=iter_fun)
 
     print('Computing the power spectral densities of the outputs...')
     window = min(int(200 / dt), N_samples // 2)
