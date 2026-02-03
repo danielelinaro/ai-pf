@@ -17,19 +17,25 @@ def _bus_name_to_terminal_name(bus):
     #return 'term_{}'.format(bus.lower().replace(' ', '_'))
 
 
-def _read_element_parameters(element, par_names=None, type_par_names=None, bus_names=['bus1']):
-    data = {'name': re.sub('^[0-9]*', '', element.loc_name).replace(' ','').replace('-','')}
+def _read_element_parameters(element, par_names=None, type_par_names=None,
+                             bus_names=['bus1'], coeffs=None):
+    data = {
+        'name': re.sub('^[0-9]*', '', element.loc_name).replace(' ','').replace('-',''),
+        'loc_name': element.loc_name,
+    }
     if len(data['name']) == 0:
         data['name'] = None
     if bus_names is not None and len(bus_names) > 0:
         data['terminals'] = [element.GetAttribute(bus_name).cterm.loc_name
                              for bus_name in bus_names]
     if par_names is not None:
-        for k,v in par_names.items():
-            data[v] = element.GetAttribute(k)
+        for k, v in par_names.items():
+            c = coeffs.get(k, 1.) if isinstance(coeffs, dict) else 1.
+            data[v] = c * element.GetAttribute(k)
     if type_par_names is not None:
-        for k,v in type_par_names.items():
-            data[v] = element.typ_id.GetAttribute(k)
+        for k, v in type_par_names.items():
+            c = coeffs.get(k, 1.) if isinstance(coeffs, dict) else 1.
+            data[v] = c * element.typ_id.GetAttribute(k)
     return data
 
 
@@ -165,13 +171,14 @@ class PowerPlant (object):
         slots = power_plant.pblk
         elements = power_plant.pelm
         self.sm, self.avr, self.gov = None, None, None
-        for slot,element in zip(slots, elements):
+        for slot, element in zip(slots, elements):
             if element is not None:
-                if 'sym' in slot.loc_name.lower() or 'sm' in slot.loc_name.lower():
+                slot_name = slot.loc_name.lower()
+                if 'sym' in slot_name or 'sm' in slot_name:
                     self.sm = SynchronousMachine(element)
-                elif 'avr' in slot.loc_name.lower():
+                elif 'avr' in slot_name:
                     self.avr = AutomaticVoltageRegulator(element, type_name='IEEEEXC1')
-                elif 'gov' in slot.loc_name.lower():
+                elif 'gov' in slot_name:
                     name = element.typ_id.loc_name.lower()
                     type_name = None
                     if 'ieee' in name:
@@ -187,7 +194,7 @@ class PowerPlant (object):
         if self.gov is None:
             raise Exception('A turbine governor must be present in a power plant')
         if self.avr is not None:
-            self.avr.vrating = self.gen.vrating
+            self.avr.vrating = self.sm.vrating
                     
     def __str__(self):
         bus_id = self.sm.bus_id
@@ -238,12 +245,13 @@ class Line (object):
         par_names = {'dline': 'length', 'nlnum': 'num', 'R1': 'r', 'X1': 'x', 'B1': 'b'}
         type_par_names = {}
         bus_names = ['bus1', 'bus2']
-        data = _read_element_parameters(line, par_names, type_par_names, bus_names)
+        coeffs = {'B1': 1e-6} # B1 is in uS
+        data = _read_element_parameters(line, par_names, type_par_names, bus_names, coeffs)
         for k,v in data.items():
             self.__setattr__(k, v)
         if self.num > 1:
             print(f'Line {self.name} has {self.num} parallel lines.')
-        self.vrating = line.bus1.cterm.uknom*1e3
+        self.vrating = line.bus1.cterm.uknom * 1e3
         self.utype = 1
 
     def __str__(self):

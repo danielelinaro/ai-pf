@@ -64,6 +64,7 @@ def _IC(dt, coiref=0, verbose=False):
     inc = PF_APP.GetFromStudyCase('ComInc')
     inc.iReuseLdf = True # re-use previous load-flow results
     inc.iopt_sim = 'rms'
+    inc.iopt_show = 1
     inc.iopt_coiref = 2
     inc.tstart = 0
     inc.dtgrd = dt    # [s]
@@ -266,7 +267,7 @@ def _apply_configuration(config, verbosity_level):
                 found = True
                 element_names = list(composite_models_pars[model.loc_name].keys())
                 for elem in model.pelm:
-                    if elem.loc_name in element_names:
+                    if elem is not None and elem.loc_name in element_names:
                         param_names = elem.typ_id.sParams[0].split(',')
                         params = elem.params
                         for k, value in composite_models_pars[model.loc_name][elem.loc_name].items():
@@ -1049,10 +1050,14 @@ def run_AC_analysis():
 
     inc = _IC(0.001, coiref=config['coiref'], verbose=verbosity_level>1)
     modal_analysis = PF_APP.GetFromStudyCase('ComMod')
-    # modal_analysis.cinitMode          = 1
+    modal_analysis.iopt_met           = 0  # QR/QZ method
+    modal_analysis.initMode           = 1
+    modal_analysis.iLeft              = 1
+    modal_analysis.iPart              = 1
     modal_analysis.iSysMatsMatl       = 1
     modal_analysis.iEvalMatl          = 1
-    modal_analysis.output_type        = 1
+    modal_analysis.iPartMatl          = 1
+    modal_analysis.outputType         = 1
     modal_analysis.repBufferAndExtDll = 1
     modal_analysis.repConstantStates  = 1
     modal_analysis.dirMatl            = outdir
@@ -1082,7 +1087,7 @@ def run_AC_analysis():
             # the bus to which the load is directly connected
             bus = load.bus1.cterm
             # list of terminals that are equivalent to bus, i.e., those terminals
-            # that are only connected via closed switchs or zero-length lines
+            # that are only connected via closed switches or zero-length lines
             equiv_terms = bus.GetEquivalentTerminals()
             # get connected busbars
             busbars = [bb for bb in bus.GetConnectedMainBuses() if bb in equiv_terms]
@@ -1094,7 +1099,11 @@ def run_AC_analysis():
                 # this is probably not really necessary
                 equiv_terms = busbars[0].GetEquivalentTerminals()
             else:
-                raise Exception(f'Cannot figure out the bus ``{load.loc_name}`` is connected to.')
+                load_buses[load.loc_name] = busbars[0].loc_name
+                # this is probably not really necessary
+                equiv_terms = busbars[0].GetEquivalentTerminals()
+                print('WARNING: bus ``{}`` is connected to {} busbars.'.\
+                      format(load.loc_name, n_busbars))
             # print('[{:03d}] {} -> {}'.format(i+1,load.loc_name,load_buses[load.loc_name]))
             equiv_terms_names = sorted([term.loc_name for term in equiv_terms])
             bus_equiv_terms[load_buses[load.loc_name]] = equiv_terms_names

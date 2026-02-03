@@ -1,7 +1,0 @@
-{
-    "project_name": "V2020_Rete_Sard_2021_06_03cr_mod_loads",
-    "grid_name": "Grid",
-	"out_of_service": {"ElmGenstat": []},
-	"synch_mach": {"FSACTI0201GGR3____GEN_____": {"typ_id.h": 2.9}},
-	"outdir": "C:\\Users\\Terna_Inerzia\\Desktop\\modal_analysis\\Sardinia\\default\\EqX_NARCDI1501TRB_____LOAD____\\positive_load"
-}
