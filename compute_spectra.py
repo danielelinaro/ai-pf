@@ -11,6 +11,7 @@ import sys
 import json
 import numpy as np
 from tqdm import tqdm
+from pathlib import Path
 
 progname = os.path.basename(sys.argv[0])
 
@@ -72,34 +73,34 @@ if __name__ == '__main__':
             steps_per_decade = int(sys.argv[i])
         elif arg in ('-L', '--loads'):
             i += 1
-            v = sys.argv[i]
-            if os.path.isfile(v):
-                if os.path.splitext(v)[1] == '.json':
-                    input_loads = json.load(open(v, 'r'))['input_loads']
-                else:
-                    with open(v, 'r') as fid:
+            v = Path(sys.argv[i])
+            if v.exists():
+                with open(v) as fid:
+                    if v.suffix == '.json':
+                        input_loads = json.load(fid)['input_loads']
+                    else:
                         input_loads = [l.strip() for l in fid]
             else:
                 input_loads = v.split(',')
         elif arg in ('-I', '--inputs'):
             i += 1
-            fname = sys.argv[i]
-            if not os.path.isfile(fname):
+            fname = Path(sys.argv[i])
+            if not fname.exists():
                 print(f'{fname}: no such file.')
                 sys.exit(1)
             with open(fname, 'r') as fid:
                 inputs_dict = json.load(fid)
         elif arg in ('-V', '--vars-to-save'):
             i += 1
-            v = sys.argv[i]
-            if os.path.isfile(v):
-                if os.path.splitext(v)[1] == '.json':
-                    vars_to_save = json.load(open(v,'r'))['var_names']
-                else:
-                    with open(v,'r') as fid:
-                        vars_to_save = [l.strip() for l in fid if l.strip()[0] != '#']
+            v = Path(sys.argv[i])
+            if v.exists():
+                with open(v) as fid:
+                    if os.path.splitext(v)[1] == '.json':
+                        vars_to_save = json.load(fid)['var_names']
+                    else:
+                        vars_to_save = [l.strip() for l in fid if len(l.strip()) > 0 and l.strip()[0] != '#']
             else:
-                vars_to_save = v.split(',')
+                vars_to_save = sys.argv[i].split(',')
         elif arg == '--no-add-TF':
             compute_additional_TFs = False
         elif arg == '--dP':
@@ -119,7 +120,9 @@ if __name__ == '__main__':
             ref_SM_name = sys.argv[i]
         elif arg in ('-o','--outfile'):
             i += 1
-            outfile = sys.argv[i]
+            outfile = Path(sys.argv[i])
+            if not outfile.exists() and sys.argv[i][-4:] != '.npz':
+                outfile = Path(sys.argv[i] + '.npz')
         elif arg in ('-f', '--force'):
             force = True
         elif arg in ('-v', '--verbose'):
@@ -149,12 +152,12 @@ if __name__ == '__main__':
         print(f'{progname}: you must specify an input file')
         sys.exit(1)
     if i == N_args - 1:
-        data_file = sys.argv[i]
+        data_file = Path(sys.argv[i])
     else:
         print(f'{progname}: arguments after project name are not allowed')
         sys.exit(1)
 
-    if not os.path.isfile(data_file):
+    if not data_file.exists():
         print(f'{progname}: {data_file}: no such file.')
         sys.exit(1)
     
@@ -166,18 +169,13 @@ if __name__ == '__main__':
         sys.exit(1)
 
     if outfile is None:
-        outdir = os.path.dirname(data_file)
-        outfile = os.path.splitext(os.path.basename(data_file))[0] + \
-            '_TF_{}_{}_{}'.format(fmin, fmax, steps_per_decade) + '.npz'
-    else:
-        outdir = os.path.dirname(outfile)
-        outfile = os.path.basename(outfile)
-        if outfile[-4:] != '.npz':
-            outfile += '.npz'
-    if outdir == '':
-        outdir = '.'
-    if os.path.isfile(os.path.join(outdir, outfile)) and not force:
-        print(f'{progname}: {os.path.join(outdir, outfile)}: file exists, use -f to overwrite.')
+        outfile = data_file.parent / (data_file.stem + \
+            '_TF_{}_{}_{}'.format(fmin, fmax, steps_per_decade) + '.npz')
+    elif outfile.is_dir():
+        outfile /= (data_file.stem + \
+            '_TF_{}_{}_{}'.format(fmin, fmax, steps_per_decade) + '.npz')
+    if outfile.exists() and not force:
+        print(f'{progname}: {outfile}: file exists, use -f to overwrite.')
         sys.exit(1)
 
     if fmin >= fmax:
@@ -286,6 +284,7 @@ if __name__ == '__main__':
 
     input_rows = {}
     injection_coeffs = {}
+    mu, c, alpha = {}, {}, {}
     if input_loads is not None:
         load_buses = data['load_buses'].item()
         all_load_names = []
@@ -312,7 +311,6 @@ if __name__ == '__main__':
         input_rows.update({ld: np.zeros(2, dtype=int) for ld in input_loads})
         injection_coeffs.update({ld: np.zeros(2, dtype=float) for ld in input_loads})
         PF_loads = PF['loads']
-        mu, c, alpha = {}, {}, {}
         for i, input_load in enumerate(input_loads):
             found = False
             bus_name = load_buses[input_load]
@@ -369,12 +367,15 @@ if __name__ == '__main__':
     if inputs_dict is not None:
         for key, V in inputs_dict.items():
             for loc_name, pars in V.items():
-                vars_key = '{}{}-{}.{}'.format(
-                    grid_name,
-                    '-' + pars['block_name'] if 'block_name' in pars else '',
-                    pars['device_name'],
-                    pars['device_type'],
-                )
+                vars_key = grid_name
+                if 'site_name' in pars and pars['site_name'] is not None:
+                    vars_key += '-' + pars['site_name']
+                if 'substation_name' in pars and pars['substation_name'] is not None:
+                    vars_key += '-' + pars['substation_name']
+                if 'block_name' in pars and pars['block_name'] is not None:
+                    vars_key += '-' + pars['block_name']
+                vars_key += '-{}.{}'.format(pars['device_name'], pars['device_type'])
+                assert vars_key in vars_idx, f"'{var_key}': no such variable."
                 input_rows[loc_name] = vars_idx[vars_key][pars['var_name']]
                 injection_coeffs[loc_name] = 1.
 
@@ -486,9 +487,14 @@ if __name__ == '__main__':
            'PF': data['PF_without_slack'], 'bus_equiv_terms': data['bus_equiv_terms'],
            'mu': mu, 'c': c, 'alpha': alpha, 'dP': dP, 'sigmaP': sigmaP, 'ref_SM_name': ref_SM_name,
            'data_file': data_file, 'with_additional_TFs': compute_additional_TFs}
-    np.savez_compressed(os.path.join(outdir, outfile), **out)
+    np.savez_compressed(outfile, **out)
     if save_mat:
-        savemat(os.path.join(outdir, os.path.splitext(outfile)[0] + '.mat'), out, long_field_names=True)
+        for k in out:
+            if out[k] is None:
+                out[k] = []
+            elif isinstance(out[k], Path):
+                out[k] = str(out[k])
+        savemat(outfile.parent / (outfile.stem + '.mat'), out, long_field_names=True)
 
     tend = TIME()
     print('Elapsed time: {:.3f} sec.'.format(tend - tstart))
