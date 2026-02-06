@@ -1,0 +1,101 @@
+{
+	"db_name": "Terna_Inerzia",
+    "project_name": "V2020_Rete_Sardegna_2021_06_03cr_3GFM",
+	"study_case_name": "Converter_added_GFM",
+    "grid_name": "Grid",
+	"library_name": "Library",
+	"user_models_name": "Userdefined Models",
+	"frame_name": "",
+	"out_of_service": {},
+	"synch_mach": {
+        "config": "C:\\Users\\Terna_Inerzia\\Desktop\\ai-pf\\AC_configs\\SM_configs\\SM_ON_OFF_DEFAULT.json",
+        "CODCTI0201GGR1____GEN_____": {
+            "ip_ctrl": 1
+        }
+	},
+	"composite_models_parameters": {
+		"GFM_01": {
+			"Power_Control_01": {
+				"Ta": 40
+			}
+		},
+		"GFM_02": {
+			"Power_Control_02": {
+				"Ta": 40
+			}
+		},
+		"GFM_03": {
+			"Power_Control_03": {
+				"Ta": 40
+			}
+		}
+	},
+	"inputs": [
+		{
+			"name": "GFM_01",
+			"site": "ALGCDI",
+			"substation": "ALGCDI1501________SUBNET__",
+			"waveform": "lambda t: [0.1 * math.sin(2 * math.pi * 5 * t)]"
+		},
+		{
+			"name": "GFM_02",
+			"site": "MURCDI",
+			"substation": "MURCDI1501________SUBNET__",
+			"waveform": "lambda t: [0.1 * math.sin(2 * math.pi * 5 * t)]"
+		},
+		{
+			"name": "GFM_03",
+			"site": "SMICDI",
+			"substation": "SMICDI1501________SUBNET__",
+			"waveform": "lambda t: [0.1 * math.sin(2 * math.pi * 5 * t)]"
+		}
+	],
+	"parameters_to_save": ["Ta"],
+	"match_gen_cons": false,
+	"P_match": 1,
+	"record": {
+		"ElmSym": {
+			"names": "*",
+			"vars": ["s:xspeed"],
+			"attrs": ["loc_name", "pgini", "qgini", "typ_id.h", "typ_id.sgn"],
+			"devs_name": "gen"
+		},
+		"ElmTerm": {
+			"names": [
+				"NARCDI1501A5______BUS_____", "BDNC_I1501A2______BUS_____", "ALHCDI1501A2______BUS_____",
+				"ORSCTI2201B1______BUS_____", "ARZCDI1501A2______BUS_____", "VISCDI1501A2______BUS_____",
+				"VO2CDI1501A2______BUS_____", "RUMCTI1501A1______BUS_____", "MURCDI1501A1______BUS_____",
+				"ASSCPI1501A1______BUS_____", "FSOCZI1501A1______BUS_____", "SESCDI1501A1______BUS_____",
+				"BOLC_I2201A1______BUS_____", "PA2C_I1501A1______BUS_____", "GUSC_I1501A1______BUS_____",
+				"ECOCZI2202A1______BUS_____", "CODCTI3801B1______BUS_____", "SGSC_I1501A1______BUS_____",
+				"NU2CDI1501A2______BUS_____", "CHECDI1501A3______BUS_____", "CODCTI0201A1______BUS_____",
+				"MIMC_I2201A1______BUS_____", "MIMC_I2201A2______BUS_____", "ALIC_I1501A1______BUS_____",
+				"CA4CDI1501A1______BUS_____"
+			],
+			"vars": ["m:ur", "m:ui", "m:u", "m:fe"],
+			"attrs": ["loc_name", "uknom", "unknom"],
+			"devs_name": "bus"
+		},
+		"ElmLod": {
+			"names": [
+				"EqX_MIMC_I2201TR1_____LOAD____", "EqX_MIMC_I2201TR2_____LOAD____",
+				"EqX_ALIC_I1501TR1_____LOAD____", "EqX_ALIC_I1501TR2_____LOAD____",
+				"EqX_CA4CDI1501TRV_____LOAD____"
+			],
+			"vars": ["m:Psum:bus1", "m:Qsum:bus1"],
+			"attrs": ["loc_name", "plini", "qlini"],
+			"devs_name": "load"
+		},
+		"ElmGenstat": {
+			"names": [
+				"Genstat_01", "Genstat_02", "Genstat_03", "CODCTI0101___1____GEN_____"
+			],
+			"vars": ["s:xspeed"],
+			"attrs": ["loc_name", "pgini", "qgini", "P_max", "sgn"],
+			"devs_name": "genstat"
+		}
+	},
+	"coiref": "element",
+	"dt": 1e-3,
+	"tstop": 20
+}

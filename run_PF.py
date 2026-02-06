@@ -9,6 +9,7 @@ import re
 import os
 import sys
 import json
+import math
 from time import time as TIME
 import numpy as np
 from numpy.random import RandomState, SeedSequence, MT19937
@@ -33,8 +34,10 @@ def compute_fourier_coeffs(F, time, speed, mu=10):
         dt = dt[dt >= 1e-6][0]
         idx = t > t[-1] - mu / f
         for j in range(n_generators):
-            gammac[i,j] = f/mu*dt*np.cos(2*np.pi*f*t[np.newaxis,idx]) @ (spd[idx,j]-1)
-            gammas[i,j] = f/mu*dt*np.sin(2*np.pi*f*t[np.newaxis,idx]) @ (spd[idx,j]-1)
+            c = f / mu * dt
+            x = 2 * np.pi * f * t[np.newaxis, idx]
+            gammac[i,j] = c * np.cos(x) @ (spd[idx, j] - 1)
+            gammas[i,j] = c * np.sin(x) @ (spd[idx, j] - 1)
     return gammac,gammas
 
 
@@ -55,6 +58,31 @@ HVDC_P = {}
 ############################################################
 ###                   UTILITY FUNCTIONS                  ###
 ############################################################
+
+
+def _collect_parameters(pars_to_save):
+    if pars_to_save is None or len(pars_to_save) == 0:
+        return {}
+    pars = {}
+    pars_to_save = [par.lower() for par in pars_to_save]
+    composite_models = _get_objects('*.ElmComp')
+    DSLs = _get_objects('*.ElmDsl')
+    for model in composite_models:
+        model_name = model.loc_name
+        for slot, elem in zip(model.pblk, model.pelm):
+            if elem in DSLs:
+                elem_name = elem.loc_name
+                par_names = elem.typ_id.sParams
+                if len(par_names) > 0:
+                    par_names = par_names[0].split(',')
+                    for par_name, value in zip(par_names, elem.params):
+                        if par_name.lower() in pars_to_save:
+                            if model_name not in pars:
+                                pars[model_name] = {}
+                            if elem_name not in pars[model_name]:
+                                pars[model_name][elem_name] = {}
+                            pars[model_name][elem_name][par_name] = value
+    return pars
 
 
 def _IC(dt, coiref=0, verbose=False):
@@ -494,14 +522,20 @@ def _get_attributes(record_map, verbose=False):
 
 
 def _get_data(res, record_map, data_obj, interval=(0,None), dt=None, verbose=False):
-    # data_obj is a PowerFactor DataObject used to create an IntVec object
+    # data_obj is a (sequence of) PowerFactory DataObject('s) used to create an IntVec object
     # where the column data will be stored. If it is None, the (much slower)
     # GetValue function will be used, which gets one value at a time from the
     # ElmRes object
     if verbose:
         sys.stdout.write('Loading data from PF internal file... ')
         sys.stdout.flush()
-    vec = data_obj.CreateObject('IntVec') if data_obj is not None else None
+    if data_obj is not None:
+        if isinstance(data_obj, (list, tuple)):
+            vec = data_obj[-1].CreateObject('IntVec')
+        else:
+            vec = data_obj.CreateObject('IntVec')
+    else:
+        vec = None
     t0 = TIME()
     res.Flush()
     res.Load()
@@ -754,12 +788,10 @@ def run_tran():
         print(f'{progname}: output file `{outfile}` exists: use -f to overwrite.')
         sys.exit(1)
 
-    rs,seed = _get_random_state(config)
-    if verbosity_level > 0: print(f'Seed: {seed}.')
-
     PF_db_name = config['db_name'] if 'db_name' in config else 'Terna_Inerzia'
     project_name = '\\' + PF_db_name + '\\' + project_name
-    project = _activate_project(project_name, verbosity_level>0)
+    study_case_name = config.get('study_case_name', None)
+    project = _activate_project(project_name, study_case_name, verbosity_level>0)
     _print_network_info()
     
     found = False
@@ -773,69 +805,110 @@ def run_tran():
         print('Cannot find a grid named `{}`.'.format(config['grid_name']))
         sys.exit(1)
 
-    def check_matches(load, patterns, limits, out_of_service):
-        if all([re.match(pattern, load.loc_name) is None for pattern in patterns]) or \
-            load.loc_name in out_of_service:
-            return False
-        p,q = load.plini, load.qlini
-        if (p >= limits['P'][0] and p <= limits['P'][1]) or \
-            (q >= limits['Q'][0] and q <= limits['Q'][1]):
-               return True
-        return False
-
-    loads = list(filter(lambda load: check_matches(load,
-                                                   config['stoch_loads'],
-                                                   config['limits'],
-                                                   config['out_of_service']['ElmLod'] \
-                                                       if 'ElmLod' in config['out_of_service'] else []),
-                        _get_objects('*.ElmLod')))
-    n_loads = len(loads)
- 
-    if verbosity_level > 0:
-        print('{} load{} match{} the name pattern and ha{} either P or Q within the limits.'.\
-            format(n_loads, 's' if n_loads > 1 else '', 'es' if n_loads == 1 else '', 's' if n_loads == 1 else 've'))
-        if verbosity_level > 2:
-            print('{:^5s} {:<30s} {:^10s} {:^10s}'.format('#', 'Name', 'P [MW]', 'Q [MVAr]'))
-            print('=' * 58)
-            for i,load in enumerate(loads):
-                print('[{:3d}] {:30s} {:10.3f} {:10.3f}'.format(i+1, load.loc_name, load.plini, load.qlini))
-
-    seeds = rs.randint(0, 1000000, size=n_loads)
-    if 'sigma' in config and 'tau' in config:
-        time_varying_loads = [OULoad(ld, PF_APP, grid, config['library_name'],
-                              config['user_models_name'], config['frame_name'],
-                              outdir='stoch_loads', seed=sd)
-                       for ld, sd in zip(loads, seeds)]
-        load_type = 'stoch'
-    elif 'sine' in config:
-        time_varying_loads = [SinusoidalLoad(ld, PF_APP, grid, config['library_name'],
-                                    config['user_models_name'], config['frame_name'],
-                                    outdir='sinusoidal_loads') for ld in loads]
-        load_type = 'sin'
-    else:
-        raise Exception('Do not know what type of time-varying load to instantiate.')
-
     dt = config['dt']
     tstop = config['tstop']
     n_samples = int(np.ceil(tstop / dt)) + 1
 
-    for i, (load, tv_load) in enumerate(zip(loads, time_varying_loads)):
-        msg = 'Writing load file {:d}/{:d}...'.format(i+1, n_loads)
-        sys.stdout.write(msg)
-        sys.stdout.flush()
-        if load_type == 'stoch':
-            P = load.plini, np.abs(load.plini) * config['sigma']['P']
-            Q = load.qlini, np.abs(load.qlini) * config['sigma']['Q']
-            tau = [config['tau']['P'], config['tau']['Q']]
-            tv_load.write_to_file(dt, P, Q, n_samples, tau, verbosity_level>2)
-        elif load_type == 'sin':
-            P = load.plini, np.abs(load.plini) * config['sine']['P']
-            Q = load.qlini, np.abs(load.qlini) * config['sine']['Q']
-            tv_load.write_to_file(dt, P, Q, config['sine']['freq'], n_samples, verbosity_level>2)
-        if i < n_loads-1:
-            sys.stdout.write('\b' * len(msg))
-    sys.stdout.write('\n')
+    rs, seed = _get_random_state(config)
+    if verbosity_level > 0:
+        print(f'Seed: {seed}.')
     
+    time_varying_loads = None
+    if 'stoch_loads' in config:
+
+        def check_matches(load, patterns, limits, out_of_service):
+            if all([re.match(pattern, load.loc_name) is None for pattern in patterns]) or \
+                load.loc_name in out_of_service:
+                return False
+            p, q = load.plini, load.qlini
+            if (p >= limits['P'][0] and p <= limits['P'][1]) or \
+                (q >= limits['Q'][0] and q <= limits['Q'][1]):
+                   return True
+            return False
+
+        loads = list(filter(lambda load: check_matches(load,
+                                                       config['stoch_loads'],
+                                                       config['limits'],
+                                                       config['out_of_service']['ElmLod'] \
+                                                           if 'ElmLod' in config['out_of_service'] else []),
+                            _get_objects('*.ElmLod')))
+        n_loads = len(loads)
+     
+        if verbosity_level > 0:
+            print('{} load{} match{} the name pattern and ha{} either P or Q within the limits.'.\
+                format(n_loads, 's' if n_loads > 1 else '', 'es' if n_loads == 1 else '', 's' if n_loads == 1 else 've'))
+            if verbosity_level > 2:
+                print('{:^5s} {:<30s} {:^10s} {:^10s}'.format('#', 'Name', 'P [MW]', 'Q [MVAr]'))
+                print('=' * 58)
+                for i,load in enumerate(loads):
+                    print('[{:3d}] {:30s} {:10.3f} {:10.3f}'.format(i+1, load.loc_name, load.plini, load.qlini))
+    
+        seeds = rs.randint(0, 1000000, size=n_loads)
+        if 'sigma' in config and 'tau' in config:
+            time_varying_loads = [OULoad(ld, PF_APP, grid, config['library_name'],
+                                  config['user_models_name'], config['frame_name'],
+                                  outdir='stoch_loads', seed=sd)
+                           for ld, sd in zip(loads, seeds)]
+            load_type = 'stoch'
+        elif 'sine' in config:
+            time_varying_loads = [SinusoidalLoad(ld, PF_APP, grid, config['library_name'],
+                                        config['user_models_name'], config['frame_name'],
+                                        outdir='sinusoidal_loads') for ld in loads]
+            load_type = 'sin'
+        else:
+            raise Exception('Do not know what type of time-varying load to instantiate.')
+
+        for i, (load, tv_load) in enumerate(zip(loads, time_varying_loads)):
+            msg = 'Writing load file {:d}/{:d}...'.format(i+1, n_loads)
+            sys.stdout.write(msg)
+            sys.stdout.flush()
+            if load_type == 'stoch':
+                P = load.plini, np.abs(load.plini) * config['sigma']['P']
+                Q = load.qlini, np.abs(load.qlini) * config['sigma']['Q']
+                tau = [config['tau']['P'], config['tau']['Q']]
+                tv_load.write_to_file(dt, P, Q, n_samples, tau, verbosity_level>2)
+            elif load_type == 'sin':
+                P = load.plini, np.abs(load.plini) * config['sine']['P']
+                Q = load.qlini, np.abs(load.qlini) * config['sine']['Q']
+                tv_load.write_to_file(dt, P, Q, config['sine']['freq'], n_samples, verbosity_level>2)
+            if i < n_loads-1:
+                sys.stdout.write('\b' * len(msg))
+        sys.stdout.write('\n')
+
+    if 'inputs' in config:
+        t = np.r_[0 : tstop + dt/2 : dt]
+        all_sites = PF_APP.GetCalcRelevantObjects('*.ElmSite')
+        all_elm_files = PF_APP.GetCalcRelevantObjects('*.ElmFile')
+        for inp in config['inputs']:
+            found = False
+            for site in all_sites:
+                if site.loc_name == inp['site']:
+                    for substation in site.GetContents():
+                        if substation.loc_name == inp['substation']:
+                            for comp_model in substation.GetContents():
+                                if comp_model.loc_name == inp['name']:
+                                    for elem in comp_model.pelm:
+                                        if elem in all_elm_files:
+                                            #elm_files.append(elem)
+                                            fun = np.vectorize(eval(inp['waveform']), otypes=[list])
+                                            X = fun(t)
+                                            n_cols = len(X[0])
+                                            print('Writing to file {}...'.format(elem.f_name))
+                                            with open(elem.f_name, 'w') as fid:
+                                                fid.write('{}\n'.format(n_cols))
+                                                for i in range(t.size):
+                                                    fid.write(f'{t[i]:g}')
+                                                    for j in range(n_cols):
+                                                        fid.write(f' {X[i][j]:g}')
+                                                    fid.write('\n')
+                                    found = True
+                                    break
+                        if found:
+                            break
+                if found:
+                    break
+            assert found, "Device '{}' not found.".format(inp['name'])
+        
     PF1, PF2 = _apply_configuration(config, verbosity_level)
 
     (
@@ -855,27 +928,16 @@ def run_tran():
         Qsg
     ) = _compute_measures(grid.frnom, verbosity_level>0)
 
-    # for SM in _get_objects('*.ElmSym'):
-    #     bus = SM.bus1.cterm
-    #     if '___BUS___' not in bus.loc_name:
-    #         equiv_terms = bus.GetEquivalentTerminals()
-    #         busbars = [bb for bb in bus.GetConnectedMainBuses() if bb in equiv_terms]
-    #         if len(busbars) == 1:
-    #             sys.stdout.write('"{}",'.format(busbars[0].loc_name))
-    #         else:
-    #             import pdb
-    #             pdb.set_trace()
-    #     else:
-    #         sys.stdout.write('"{}",'.format(bus.loc_name))
-    
     try:
-        inc = _IC(dt, coiref=config['coiref'], verbose=verbosity_level>1)
+        pars = _collect_parameters(config.get('parameters_to_save', None))
+        _ = _IC(dt, coiref=config['coiref'], verbose=verbosity_level>1)
         res, _ = _set_vars_to_save(config['record'], verbosity_level>1)
         sim, dur, err = _tran(tstop, verbosity_level>1)
 
         interval = (0, None)
         time,data = _get_data(res, config['record'], project, interval, dt, verbosity_level>1)
         attributes, device_names, ref_SMs = _get_attributes(config['record'], verbosity_level>1)
+        
         blob = {'config': config,
                 'seed': seed,
                 'inertia': Htot,
@@ -884,6 +946,7 @@ def run_tran():
                 'Stot': Stot,
                 'Hsm': Hsm, 'Ssm': Ssm, 'Jsm': Jsm,
                 'Psm': Psm, 'Qsm': Qsm,
+                'DSL_params': pars,
                 'Ssg': Ssg, 'Psg': Psg, 'Qsg': Qsg,
                 'Pload': Pload, 'Qload': Qload,
                 'PF_with_slack': PF1,
@@ -893,25 +956,29 @@ def run_tran():
                 'attributes': attributes,
                 'device_names': device_names,
                 'ref_SMs': ref_SMs}
-        if load_type == 'stoch':
-            blob.update({'OU_seeds': np.array([ld.seed for ld in time_varying_loads]),
-                'OU_P': np.array([ld.P_OU for ld in time_varying_loads]).T,
-                'OU_Q': np.array([ld.Q_OU for ld in time_varying_loads]).T,
-                'stoch_load_names': [ld.load.loc_name for ld in time_varying_loads],
-                'stoch_load_P': [ld.load.plini for ld in time_varying_loads],
-                'stoch_load_Q': [ld.load.qlini for ld in time_varying_loads]})
-        elif load_type == 'sin':
-            blob.update({'sin_load_names': [ld.load.loc_name for ld in time_varying_loads],
-                'sin_load_P': [ld.load.plini for ld in time_varying_loads],
-                'sin_load_Q': [ld.load.qlini for ld in time_varying_loads]})
+
+        if time_varying_loads is not None:
+            if load_type == 'stoch':
+                blob.update({'OU_seeds': np.array([ld.seed for ld in time_varying_loads]),
+                    'OU_P': np.array([ld.P_OU for ld in time_varying_loads]).T,
+                    'OU_Q': np.array([ld.Q_OU for ld in time_varying_loads]).T,
+                    'stoch_load_names': [ld.load.loc_name for ld in time_varying_loads],
+                    'stoch_load_P': [ld.load.plini for ld in time_varying_loads],
+                    'stoch_load_Q': [ld.load.qlini for ld in time_varying_loads]})
+            elif load_type == 'sin':
+                blob.update({'sin_load_names': [ld.load.loc_name for ld in time_varying_loads],
+                    'sin_load_P': [ld.load.plini for ld in time_varying_loads],
+                    'sin_load_Q': [ld.load.qlini for ld in time_varying_loads]})
+
         np.savez_compressed(outfile, **blob)
 
     except Exception as inst:
         sys.stdout.write('Failed to run transient simulation: ')
         print(inst)
- 
-    for load in time_varying_loads:
-        load.clean(verbosity_level>2)
+
+    if time_varying_loads is not None:
+        for load in time_varying_loads:
+            load.clean(verbosity_level>2)
 
     _restore_network_state(verbosity_level>2)
 
@@ -1026,27 +1093,7 @@ def run_AC_analysis():
     ) = _compute_measures(grid.frnom, verbosity_level>0)
 
     # get parameters of DSL objects
-    pars_to_save = config.get('parameters_to_save', None)
-    pars = {}
-    if pars_to_save is not None and len(pars_to_save) > 0:
-        pars_to_save = [par.lower() for par in pars_to_save]
-        composite_models = _get_objects('*.ElmComp')
-        DSLs = _get_objects('*.ElmDsl')
-        for model in composite_models:
-            model_name = model.loc_name
-            for slot, elem in zip(model.pblk, model.pelm):
-                if elem in DSLs:
-                    elem_name = elem.loc_name
-                    par_names = elem.typ_id.sParams
-                    if len(par_names) > 0:
-                        par_names = par_names[0].split(',')
-                        for par_name, value in zip(par_names, elem.params):
-                            if par_name.lower() in pars_to_save:
-                                if model_name not in pars:
-                                    pars[model_name] = {}
-                                if elem_name not in pars[model_name]:
-                                    pars[model_name][elem_name] = {}
-                                pars[model_name][elem_name][par_name] = value
+    pars = _collect_parameters(config.get('parameters_to_save', None))
 
     inc = _IC(0.001, coiref=config['coiref'], verbose=verbosity_level>1)
     modal_analysis = PF_APP.GetFromStudyCase('ComMod')
