@@ -32,7 +32,7 @@ def _newman_phase(k, N):
     return math.pi * ((k - 1) ** 2) / N
 
 
-def multitone(N, fs, tend, method='newman', N0=0):
+def multitone(N, fs, tend, method='newman', N0=0, omega0=1.0):
     if method.lower() in ('newman', 'n'):
         delta_fun = _newman_phase
     elif method.lower() in ('shapiro-rudin', 'sr'):
@@ -44,7 +44,7 @@ def multitone(N, fs, tend, method='newman', N0=0):
     u = np.zeros_like(t)
     for k in range(1, N + 1):
         delta = delta_fun(k, N)
-        u += np.cos((k + N0) * t + delta)
+        u += np.cos((k + N0) * omega0 * t + delta)
     return np.sqrt(2 / N) * u
 
 
