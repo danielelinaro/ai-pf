@@ -10,6 +10,7 @@ import os
 import sys
 import json
 import math
+import multitone
 from time import time as TIME
 import numpy as np
 from numpy.random import RandomState, SeedSequence, MT19937
@@ -889,7 +890,6 @@ def run_tran():
                                 if comp_model.loc_name == inp['name']:
                                     for elem in comp_model.pelm:
                                         if elem in all_elm_files:
-                                            #elm_files.append(elem)
                                             fun = np.vectorize(eval(inp['waveform']), otypes=[list])
                                             X = fun(t)
                                             n_cols = len(X[0])

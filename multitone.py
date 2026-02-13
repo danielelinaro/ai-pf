@@ -6,7 +6,7 @@ __all__ = [
     "multitone",
     "compute_crest_factor",
     "compute_amplitude_distribution",
-    ]
+]
 
 
 def _rudin_signs(N, x0=[1, 1]):
@@ -32,15 +32,14 @@ def _newman_phase(k, N):
     return math.pi * ((k - 1) ** 2) / N
 
 
-def multitone(N, fs, tend, method='newman', N0=0, omega0=1.0):
+def multitone(t, N, method='newman', N0=0, omega0=1.0):
     if method.lower() in ('newman', 'n'):
         delta_fun = _newman_phase
     elif method.lower() in ('shapiro-rudin', 'sr'):
         delta_fun = _shapiro_rudin_phase
     else:
         raise Exception("Accepted methods are 'Newman' or 'Shapiro-Rudin'")
-    dt = 1 / fs
-    t = np.r_[0 : tend + dt/2 : dt]
+    t = np.asarray(t, dtype=float)
     u = np.zeros_like(t)
     for k in range(1, N + 1):
         delta = delta_fun(k, N)

@@ -1,6 +1,6 @@
 {
 	"db_name": "Terna_Inerzia",
-    "project_name": "V2020_Rete_Sardegna_2021_06_03cr_3GFM",
+    "project_name": "Sardegna_2021_06_03cr_3GFM_noTG_lowLV",
 	"study_case_name": "Converter_added_GFM",
     "grid_name": "Grid",
 	"library_name": "Library",
@@ -35,19 +35,19 @@
 			"name": "GFM_01",
 			"site": "ALGCDI",
 			"substation": "ALGCDI1501________SUBNET__",
-			"waveform": "lambda t: [0.1 * math.sin(2 * math.pi * 5 * t)]"
+			"waveform": "lambda t: [0.1 * multitone.multitone(t, 32, omega0=2 * math.pi * 0.01)]"
 		},
 		{
 			"name": "GFM_02",
 			"site": "MURCDI",
 			"substation": "MURCDI1501________SUBNET__",
-			"waveform": "lambda t: [0.1 * math.sin(2 * math.pi * 5 * t)]"
+			"waveform": "lambda t: [0.1 * multitone.multitone(t, 32, omega0=2 * math.pi * 0.01)]"
 		},
 		{
 			"name": "GFM_03",
 			"site": "SMICDI",
 			"substation": "SMICDI1501________SUBNET__",
-			"waveform": "lambda t: [0.1 * math.sin(2 * math.pi * 5 * t)]"
+			"waveform": "lambda t: [0.1 * multitone.multitone(t, 32, omega0=2 * math.pi * 0.01)]"
 		}
 	],
 	"parameters_to_save": ["Ta"],
@@ -97,5 +97,5 @@
 	},
 	"coiref": "element",
 	"dt": 1e-3,
-	"tstop": 20
+	"tstop": 200
 }

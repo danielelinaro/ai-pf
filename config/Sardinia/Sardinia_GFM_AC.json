@@ -1,6 +1,6 @@
 {
 	"db_name": "Terna_Inerzia",
-    "project_name": "V2020_Rete_Sardegna_2021_06_03cr_3GFM",
+    "project_name": "Sardegna_2021_06_03cr_3GFM_lowLV",
 	"study_case_name": "Converter_added_GFM",
     "grid_name": "Grid",
 	"out_of_service": {"ElmGenstat": []},
@@ -10,17 +10,17 @@
 	"composite_models_parameters": {
 		"GFM_01": {
 			"Power_Control_01": {
-				"Ta": 200
+				"Ta": 40
 			}
 		},
 		"GFM_02": {
 			"Power_Control_02": {
-				"Ta": 200
+				"Ta": 40
 			}
 		},
 		"GFM_03": {
 			"Power_Control_03": {
-				"Ta": 200
+				"Ta": 40
 			}
 		}
 	},
@@ -28,5 +28,5 @@
 	"match_gen_cons": false,
 	"P_match": 1,
 	"coiref": "element",
-	"outdir": "C:\\Users\\Terna_Inerzia\\Desktop\\modal_analysis\\Sardinia\\default_config\\GFMs_01_02_03\\Ta_200"
+	"outdir": "C:\\Users\\Terna_Inerzia\\Desktop\\modal_analysis\\Sardinia\\default_config\\GFMs_01_02_03_lowLV\\Ta_40"
 }
