@@ -3,6 +3,8 @@ import math
 import numpy as np
 
 __all__ = [
+    "shapiro_rudin_phase",
+    "newman_phase",
     "multitone",
     "compute_crest_factor",
     "compute_amplitude_distribution",
@@ -19,7 +21,7 @@ def _rudin_signs(N, x0=[1, 1]):
 _rudin_signs_list = _rudin_signs(1000)
 
 
-def _shapiro_rudin_phase(k, N):
+def shapiro_rudin_phase(k, N):
     assert k <= N
     if k <= len(_rudin_signs_list):
         return 0 if _rudin_signs_list[k - 1] == 1 else math.pi
@@ -27,16 +29,16 @@ def _shapiro_rudin_phase(k, N):
     return delta[k - 1]
 
 
-def _newman_phase(k, N):
+def newman_phase(k, N):
     assert k <= N
     return math.pi * ((k - 1) ** 2) / N
 
 
 def multitone(t, N, method='newman', N0=0, omega0=1.0):
     if method.lower() in ('newman', 'n'):
-        delta_fun = _newman_phase
+        delta_fun = newman_phase
     elif method.lower() in ('shapiro-rudin', 'sr'):
-        delta_fun = _shapiro_rudin_phase
+        delta_fun = shapiro_rudin_phase
     else:
         raise Exception("Accepted methods are 'Newman' or 'Shapiro-Rudin'")
     t = np.asarray(t, dtype=float)
