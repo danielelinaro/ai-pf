@@ -136,7 +136,6 @@ PF/Sinusoidal_load.txt
 *.xlsx
 *.csv
 *.mat
-*.txt
 *.pan
 *.out
 *.mtl

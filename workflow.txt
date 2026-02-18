@@ -1,0 +1,24 @@
+
+STEP 1: run the modal analysis
+On Windows:
+python run_PF.py AC -f AC_configs\Sardinia_AC_config_DEFAULT.json
+python run_PF.py AC config\IEEE39_stoch_AC_config.json
+python run_PF.py AC config\SMs_with_line_and_loads_AC_config.json
+Elapsed time: 21 sec.
+
+STEP 2: compute the transfer functions
+python3 compute_spectra.py -N 50 --ref-sm CODCTI0201GGR1____GEN_____ --dP 0.01 -L load_names.txt -V vars_to_save.txt -o data/Sardinia/SM_configs_from_data/default/V2020_Rete_Sardegna_2021_06_03cr_AC_TF_-6.0_2.0_50_0.01.npz data/Sardinia/SM_configs_from_data/default/V2020_Rete_Sardegna_2021_06_03cr_AC.npz
+On Windows:
+python compute_spectra.py -N 50 --ref-sm CODCTI0201GGR1____GEN_____ --dP 0.01 -L load_names.txt -V vars_to_save.txt -o ..\modal_analysis\Sardinia\SM_configs_from_data\default\V2020_Rete_Sardegna_2021_06_03cr_AC_TF_-6.0_2.0_50_0.01.npz ..\modal_analysis\Sardinia\SM_configs_from_data\default\V2020_Rete_Sardegna_2021_06_03cr_AC.npz
+Elapsed time: 672 (???) sec.
+
+STEP 3: filter the OU inputs with the spectra computed at the previous step
+On Linux:
+python3 filter_OU_inputs.py -o data/Sardinia/SM_configs_from_data/default/V2020_Rete_Sardegna_2021_06_03cr_stoch_TF_0.01_1_load_short.h5 --data-file data/Sardinia/SM_configs_from_data/default/V2020_Rete_Sardegna_2021_06_03cr_AC_TF_-6.0_2.0_50_0.01.npz -f config/filter_OU_config_small.json
+On Windows:
+python filter_OU_inputs.py -o ..\modal_analysis\Sardinia\SM_configs_from_data\default\V2020_Rete_Sardegna_2021_06_03cr_stoch_TF_0.01_1_load_short.h5 --data-file ..\modal_analysis\Sardinia\SM_configs_from_data\default\V2020_Rete_Sardegna_2021_06_03cr_AC_TF_-6.0_2.0_50_0.01.npz -f config\filter_OU_config_small.json
+Elapsed time: 2.078 (???) sec for the vector fitting part plus 1.464 (???) sec for the filtering part.
+
+STEP 4: run an equivalent transient simulation in PowerFactory
+python run_PF.py tran -o ..\modal_analysis\Sardinia\SM_configs_from_data\default\V2020_Rete_Sardegna_2021_06_03cr_stoch_tran_0.01_1_load_short.npz -f config\Sardinia\Sardinia_tran_config_DEFAULT.json
+Elapsed time: 76 sec.

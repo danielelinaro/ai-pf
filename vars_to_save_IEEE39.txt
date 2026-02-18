@@ -1,0 +1,8 @@
+^Grid-G [0-9]+\.ElmSym\.speed$
+^Grid-G [0-9]+\.ElmSym\.i[ri]$
+^Grid-Bus [0-9]+\.ElmTerm\.fe$
+^Grid-Bus [0-9]+\.ElmTerm\.u[ri]$
+^Grid-Load [0-9]+\.ElmLod\.i[ri]$
+^Grid-.*\.ElmGenstat\.xspeed$
+^Grid-.*\.StaVmea\.fe$
+^Grid-GFM_[0-9]+-Power_Control_[0-9]+\.ElmDsl\.x1$
