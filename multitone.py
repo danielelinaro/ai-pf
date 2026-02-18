@@ -8,6 +8,7 @@ __all__ = [
     "multitone",
     "compute_crest_factor",
     "compute_amplitude_distribution",
+    "compute_fourier_coeffs",
 ]
 
 
@@ -30,7 +31,8 @@ def shapiro_rudin_phase(k, N):
 
 
 def newman_phase(k, N):
-    assert k <= N
+    k = np.asarray(k)
+    assert np.all(k <= N)
     return math.pi * ((k - 1) ** 2) / N
 
 
@@ -68,3 +70,18 @@ def compute_amplitude_distribution(u, bins):
     n = np.zeros_like(edges)
     n = np.array([(x > e).sum() for e in edges], dtype=float)
     return n / x.size, edges
+
+
+def compute_fourier_coeffs(freq, t, x, phase):
+    dt = t[1] - t[0]
+    freq = np.asarray(freq)
+    phase = np.asarray(phase) + np.zeros_like(freq)
+    coeffs = np.zeros((freq.size, x.shape[1]), dtype=complex)
+    for i, (f, phi) in enumerate(zip(freq, phase)):
+        n_periods = t[-1] * f
+        A = f / n_periods * dt
+        coeffs[i] = 1 / t[-1] * dt * (
+            np.cos(2 * np.pi * f * t + phi) @ x +
+            1j * np.sin(2 * np.pi * f * t + phi) @ x
+        )
+    return coeffs
