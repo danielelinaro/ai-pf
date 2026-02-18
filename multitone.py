@@ -73,15 +73,56 @@ def compute_amplitude_distribution(u, bins):
 
 
 def compute_fourier_coeffs(freq, t, x, phase):
-    dt = t[1] - t[0]
-    freq = np.asarray(freq)
+    """
+    Compute complex Fourier coefficients for one or multiple frequencies
+    and phases.
+
+    Parameters
+    ----------
+    freq : float or array_like
+        Frequency or array of frequencies (Hz) at which the Fourier
+        coefficients are evaluated.
+    t : (N,) array_like
+        Time vector corresponding to the signal samples. Must have the same
+        length as the first dimension of `x`. Sampling need not be uniform.
+    x : (N,) or (N, M) array_like
+        Signal values sampled at times `t`. If 1D, a single time series
+        of length `N`. If 2D, each column represents an independent signal
+        with `N` time samples and `M` parallel series.
+    phase : float or array_like
+        Phase offset(s) in radians applied to the complex Fourier basis
+        functions. Must be broadcastable with `freq`.
+
+    Returns
+    -------
+    coeffs : complex or ndarray of complex
+        Complex Fourier coefficient(s) of the form ``a + 1j * b``, where
+        ``a`` and ``b`` are the cosine and sine projection components,
+        respectively.
+
+        If `freq` and/or `phase` are array-like, the output shape follows
+        NumPy broadcasting rules. If `x` is 2D, coefficients are computed
+        independently for each column, with projections performed along
+        the time axis (axis 0).
+
+    Notes
+    -----
+    The coefficients are obtained by projecting `x` onto complex
+    exponentials (or equivalently sine and cosine basis functions) of
+    frequency `freq` with phase shift `phase`.
+
+    No assumption of uniform sampling is made; the time vector `t`
+    may be irregularly spaced.
+    """
+    from scipy.integrate import trapezoid
+    freq = np.atleast_1d(freq)
     phase = np.asarray(phase) + np.zeros_like(freq)
-    coeffs = np.zeros((freq.size, x.shape[1]), dtype=complex)
-    for i, (f, phi) in enumerate(zip(freq, phase)):
-        n_periods = t[-1] * f
-        A = f / n_periods * dt
-        coeffs[i] = 1 / t[-1] * dt * (
-            np.cos(2 * np.pi * f * t + phi) @ x +
-            1j * np.sin(2 * np.pi * f * t + phi) @ x
-        )
-    return coeffs
+    if t.size == x.shape[0]:
+        x = x.T
+    T = t[-1] - t[0]
+    return np.array([
+        1.0 / T * (
+            trapezoid(x * np.cos(2 * np.pi * f * t + phi), t) +
+            1j * trapezoid(x * np.sin(2 * np.pi * f * t + phi), t)
+        ) for f, phi in zip(freq, phase)
+    ])
