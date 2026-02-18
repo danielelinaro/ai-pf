@@ -1,0 +1,13 @@
+{
+    "SGs": {
+	"Genstat_01": {
+	    "site_name": "ALGCDI",
+	    "substation_name": "ALGCDI1501________SUBNET__",
+	    "device_name": "pref_buffer_01",
+	    "block_name": "GFM_01",
+	    "device_type": "ElmDsl",
+	    "var_name": "pref_out"
+	}
+    }
+}
+
