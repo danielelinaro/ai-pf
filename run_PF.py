@@ -86,11 +86,12 @@ def _collect_parameters(pars_to_save):
     return pars
 
 
-def _IC(dt, coiref=0, verbose=False):
+def _IC(dt, study_case, coiref=0):
+    ### get the initial condition object
     coirefs = {'element': 0, 'coi': 1, 'center_of_inertia': 1, 'nominal_frequency': 2}
     coiref_values = np.unique(list(coirefs.values()))
-    ### compute the initial condition of the simulation
-    inc = PF_APP.GetFromStudyCase('ComInc')
+    inc = study_case.GetContents('*.ComInc', 1)[0]
+    print('Initial condition name:', inc.loc_name)
     inc.iReuseLdf = True # re-use previous load-flow results
     inc.iopt_sim = 'rms'
     inc.iopt_show = 1
@@ -107,30 +108,45 @@ def _IC(dt, coiref=0, verbose=False):
         inc.iopt_coiref = coiref
     else:
         raise Exception('coiref must be a string or an integer')
-    err = inc.Execute()
-    if err:
-        with open('PF_output_window_msgs.txt','w') as fid:
-            for msg in PF_APP.GetOutputWindow().GetContent():
-                fid.write(msg + '\n')
-        raise Exception('Cannot compute initial condition')
-    elif verbose:
-        print(f'Successfully computed initial condition (dt = {dt*1e3:.1f} ms).')
     return inc
 
 
-def _tran(tstop, verbose=False):    
-    ### run the transient simulation
-    sim = PF_APP.GetFromStudyCase('ComSim')
+def _tran(dt, tstop, study_case, elmres):    
+    ### get the transient simulation object
+    sim = study_case.GetContents('*.ComSim', 1)[0]
+    print('RMS simulation name:', sim.loc_name)
+    sim.p_resvar = elmres
+    sim.dt = dt
+    sim.tstart = 0.0
     sim.tstop = tstop
-    if verbose:
-        sys.stdout.write('Running simulation until t = {:.1f} sec... '.format(tstop))
-        sys.stdout.flush()
-    t0 = TIME()
-    err = sim.Execute()
-    t1 = TIME()
-    if verbose:
-        sys.stdout.write(f'done in {t1-t0:.0f} sec.\n')
-    return sim, t1-t0, err
+    return sim
+
+
+def _set_vars_to_save(elmres, record_map, verbose=False):
+    ### tell PowerFactory which variables should be saved to its internal file
+    # speed, electrical power, mechanical torque, electrical torque, terminal voltage
+    device_names = {}
+    if verbose: print('Adding the following quantities to the list of variables to be saved:')
+    for dev_type in record_map:
+        devices = _get_objects('*.' + dev_type)
+        try:
+            key = record_map[dev_type]['devs_name']
+        except:
+            key = dev_type
+        device_names[key] = []
+        for dev in devices:
+            if (isinstance(record_map[dev_type]['names'], str) and \
+                (record_map[dev_type]['names'] == '*' or \
+                 re.match(record_map[dev_type]['names'], dev.loc_name) is not None)) or \
+                dev.loc_name in record_map[dev_type]['names']:
+                if verbose: sys.stdout.write(f'{dev.loc_name}:')
+                for var_name in record_map[dev_type]['vars']:
+                    err = elmres.AddVariable(dev, var_name)
+                    assert err == 0, f"Cannot record variable '{var_name}' of device '{dev.loc_name}'"
+                    if verbose: sys.stdout.write(f' {var_name}')
+                device_names[key].append(dev.loc_name)
+                if verbose: sys.stdout.write('\n')
+    return device_names
 
 
 def _get_objects(suffix, keep_out_of_service=False):
@@ -452,33 +468,6 @@ def _compute_measures(fn, verbose=False):
     return Htot, Etot, Mtot, Stot, Hsm, Ssm, Jsm, Ssg, Pload, Qload, Psm, Qsm, Psg, Qsg
 
 
-def _set_vars_to_save(record_map, verbose=False):
-    ### tell PowerFactory which variables should be saved to its internal file
-    # speed, electrical power, mechanical torque, electrical torque, terminal voltage
-    res = PF_APP.GetFromStudyCase('*.ElmRes')
-    device_names = {}
-    if verbose: print('Adding the following quantities to the list of variables to be saved:')
-    for dev_type in record_map:
-        devices = _get_objects('*.' + dev_type)
-        try:
-            key = record_map[dev_type]['devs_name']
-        except:
-            key = dev_type
-        device_names[key] = []
-        for dev in devices:
-            if (isinstance(record_map[dev_type]['names'], str) and \
-                (record_map[dev_type]['names'] == '*' or \
-                 re.match(record_map[dev_type]['names'], dev.loc_name) is not None)) or \
-                dev.loc_name in record_map[dev_type]['names']:
-                if verbose: sys.stdout.write(f'{dev.loc_name}:')
-                for var_name in record_map[dev_type]['vars']:
-                    res.AddVariable(dev, var_name)
-                    if verbose: sys.stdout.write(f' {var_name}')
-                device_names[key].append(dev.loc_name)
-                if verbose: sys.stdout.write('\n')
-    return res, device_names
-
-
 def _get_attributes(record_map, verbose=False):
     device_names = {}
     attributes = {}
@@ -542,12 +531,12 @@ def _get_data(res, record_map, data_obj, interval=(0,None), dt=None, verbose=Fal
     res.Load()
     t1 = TIME()
     if verbose:
-        sys.stdout.write(f'in memory in {t1-t0:.0f} sec... ')
+        sys.stdout.write(f'in memory in {t1 - t0:.0f} sec... ')
         sys.stdout.flush()
     time = get_simulation_time(res, vec, interval, dt)
     t2 = TIME()
     if verbose:
-        sys.stdout.write(f'read time in {t2-t1:.0f} sec... ')
+        sys.stdout.write(f'read time in {t2 - t1:.0f} sec... ')
         sys.stdout.flush()
     data = {}
     for dev_type in record_map:
@@ -570,7 +559,7 @@ def _get_data(res, record_map, data_obj, interval=(0,None), dt=None, verbose=Fal
     if vec is not None:
         vec.Delete()
     if verbose:
-        sys.stdout.write(f'read vars in {t3-t2:.0f} sec (total: {t3-t0:.0f} sec).\n')
+        sys.stdout.write(f'read vars in {t3 - t2:.0f} sec (total: {t3 - t0:.0f} sec).\n')
     return np.array(time), data
 
 
@@ -791,8 +780,8 @@ def run_tran():
 
     PF_db_name = config['db_name'] if 'db_name' in config else 'Terna_Inerzia'
     project_name = '\\' + PF_db_name + '\\' + project_name
-    study_case_name = config.get('study_case_name', None)
-    project = _activate_project(project_name, study_case_name, verbosity_level>0)
+    study_case_name = config['study_case_name']
+    project, study_case = _activate_project(project_name, study_case_name, verbosity_level>0)
     _print_network_info()
     
     found = False
@@ -930,14 +919,30 @@ def run_tran():
 
     try:
         pars = _collect_parameters(config.get('parameters_to_save', None))
-        _ = _IC(dt, coiref=config['coiref'], verbose=verbosity_level>1)
-        res, _ = _set_vars_to_save(config['record'], verbosity_level>1)
-        sim, dur, err = _tran(tstop, verbosity_level>1)
-
-        interval = (0, None)
-        time,data = _get_data(res, config['record'], project, interval, dt, verbosity_level>1)
-        attributes, device_names, ref_SMs = _get_attributes(config['record'], verbosity_level>1)
+        elmres = study_case.GetContents('*.ElmRes', 1)[0]
+        elmres.Clear()
+        elmres.Init()
+        _ = _set_vars_to_save(elmres, config['record'], verbose=verbosity_level>1)
+        inc = _IC(dt, study_case, coiref=config['coiref'])
+        sim = _tran(dt, tstop, study_case, elmres)
+        err = inc.Execute()
+        assert err == 0, "Cannot compute initial conditions"
+        print(f'Successfully computed initial condition (dt = {dt*1e3:.1f} ms).')
+        if verbosity_level > 1:
+            sys.stdout.write('Running simulation until t = {:.1f} sec... '.format(tstop))
+            sys.stdout.flush()
+        t0 = TIME()
+        err = sim.Execute()
+        t1 = TIME()
+        if verbosity_level > 1:
+            sys.stdout.write(f'done in {t1 - t0:.0f} sec.\n')
+        assert err == 0, "Cannot run transient simulation"
         
+        interval = 0, None
+        time, data = _get_data(elmres, config['record'], project, interval, dt, verbosity_level>1)
+        attributes, device_names, ref_SMs = _get_attributes(config['record'], verbosity_level>1)
+        elmres.Clear()
+
         blob = {'config': config,
                 'seed': seed,
                 'inertia': Htot,
@@ -1057,7 +1062,7 @@ def run_AC_analysis():
 
     PF_db_name = config['db_name'] if 'db_name' in config else 'Terna_Inerzia'
     project_name = '\\' + PF_db_name + '\\' + config['project_name']
-    study_case_name = config.get('study_case_name', None)
+    study_case_name = config['study_case_name']
     project, study_case = _activate_project(project_name, study_case_name, verbosity_level>0)
     _print_network_info()
 
@@ -1095,8 +1100,15 @@ def run_AC_analysis():
     # get parameters of DSL objects
     pars = _collect_parameters(config.get('parameters_to_save', None))
 
-    inc = _IC(0.001, coiref=config['coiref'], verbose=verbosity_level>1)
-    modal_analysis = PF_APP.GetFromStudyCase('ComMod')
+    dt = 1e-3
+    inc = _IC(dt, study_case, coiref=config['coiref'])
+    err = inc.Execute()
+    assert err == 0, "Cannot compute initial conditions"
+    print(f'Successfully computed initial condition (dt = {dt*1e3:.1f} ms).')
+    
+    #modal_analysis = PF_APP.GetFromStudyCase('ComMod')
+    modal_analysis = study_case.GetContents('*.ComMod', 1)[0]
+    print('Modal analysis name:', modal_analysis.loc_name)
     modal_analysis.iopt_met           = 0  # QR/QZ method
     modal_analysis.initMode           = 1
     modal_analysis.iLeft              = 1
@@ -1212,7 +1224,7 @@ def run_AC_analysis():
 
 
 def run_AC_tran_analysis():
-    
+    raise NotImplementedError('The code in run_AC_tran_analysis should be updated.')
     def usage(exit_code=None):
         print(f'usage: {progname} AC-tran [-f | --force] [-o | --outfile <filename>] [-v | --verbose <level>] config_file')
         if exit_code is not None:
@@ -1382,7 +1394,7 @@ def run_AC_tran_analysis():
 ############################################################
 
 def run_load_step_sim():
-
+    raise NotImplementedError('The code in run_load_step_sim should be updated.')
     def usage(exit_code=None):
         print(f'usage: {progname} load-step [-f | --force] [-o | --outfile <filename>] [-v | --verbose <level>] config_file')
         if exit_code is not None:

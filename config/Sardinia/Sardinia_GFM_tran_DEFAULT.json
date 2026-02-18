@@ -1,6 +1,6 @@
 {
 	"db_name": "Terna_Inerzia",
-    "project_name": "Sardegna_2021_06_03cr_3GFM_noTG_lowLV",
+    "project_name": "Sardegna_2021_06_03cr_1GFM_lowLV",
 	"study_case_name": "Converter_added_GFM",
     "grid_name": "Grid",
 	"library_name": "Library",
@@ -16,17 +16,7 @@
 	"composite_models_parameters": {
 		"GFM_01": {
 			"Power_Control_01": {
-				"Ta": 40
-			}
-		},
-		"GFM_02": {
-			"Power_Control_02": {
-				"Ta": 40
-			}
-		},
-		"GFM_03": {
-			"Power_Control_03": {
-				"Ta": 40
+				"Ta": 2
 			}
 		}
 	},
@@ -35,19 +25,7 @@
 			"name": "GFM_01",
 			"site": "ALGCDI",
 			"substation": "ALGCDI1501________SUBNET__",
-			"waveform": "lambda t: [0.1 * multitone.multitone(t, 32, omega0=2 * math.pi * 0.01)]"
-		},
-		{
-			"name": "GFM_02",
-			"site": "MURCDI",
-			"substation": "MURCDI1501________SUBNET__",
-			"waveform": "lambda t: [0.1 * multitone.multitone(t, 32, omega0=2 * math.pi * 0.01)]"
-		},
-		{
-			"name": "GFM_03",
-			"site": "SMICDI",
-			"substation": "SMICDI1501________SUBNET__",
-			"waveform": "lambda t: [0.1 * multitone.multitone(t, 32, omega0=2 * math.pi * 0.01)]"
+			"waveform": "lambda t: [0.1 * multitone.multitone(t, 80, omega0=2 * math.pi * 0.002)]"
 		}
 	],
 	"parameters_to_save": ["Ta"],
@@ -88,7 +66,7 @@
 		},
 		"ElmGenstat": {
 			"names": [
-				"Genstat_01", "Genstat_02", "Genstat_03", "CODCTI0101___1____GEN_____"
+				"Genstat_01"
 			],
 			"vars": ["s:xspeed"],
 			"attrs": ["loc_name", "pgini", "qgini", "P_max", "sgn"],
@@ -96,6 +74,6 @@
 		}
 	},
 	"coiref": "element",
-	"dt": 1e-3,
-	"tstop": 200
+	"dt": 10e-3,
+	"tstop": 1500
 }
