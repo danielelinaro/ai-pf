@@ -17,29 +17,10 @@ from numpy.random import RandomState, SeedSequence, MT19937
 
 from pfcommon import OU, get_simulation_time, get_simulation_variables, \
     run_power_flow, parse_sparse_matrix_file, parse_Amat_vars_file, \
-        parse_Jacobian_vars_file
+    parse_Jacobian_vars_file
 
-
-__all__ = ['compute_fourier_coeffs']
 
 progname = os.path.basename(sys.argv[0])
-
-
-def compute_fourier_coeffs(F, time, speed, mu=10):
-    n_F = len(F)
-    n_generators = speed[0].shape[1]
-    gammac = np.zeros((n_F, n_generators))
-    gammas = np.zeros((n_F, n_generators))
-    for i,(f,t,spd) in enumerate(zip(F, time, speed)):
-        dt = np.diff(t)
-        dt = dt[dt >= 1e-6][0]
-        idx = t > t[-1] - mu / f
-        for j in range(n_generators):
-            c = f / mu * dt
-            x = 2 * np.pi * f * t[np.newaxis, idx]
-            gammac[i,j] = c * np.cos(x) @ (spd[idx, j] - 1)
-            gammas[i,j] = c * np.sin(x) @ (spd[idx, j] - 1)
-    return gammac,gammas
 
 
 ############################################################
