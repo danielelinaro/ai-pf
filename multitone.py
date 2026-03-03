@@ -19,14 +19,11 @@ def _rudin_signs(N, x0=[1, 1]):
         x += [y if i < len(x) // 2 else -y for i, y in enumerate(x)]
     return x
 
-_rudin_signs_list = _rudin_signs(1000)
-
 
 def shapiro_rudin_phase(k, N):
-    assert k <= N
-    if k <= len(_rudin_signs_list):
-        return 0 if _rudin_signs_list[k - 1] == 1 else math.pi
-    delta = [0 if r == 1 else math.pi for r in _rudin_signs(N)]        
+    k = np.asarray(k)
+    assert np.all(k <= N)
+    delta = np.array([0 if r == 1 else math.pi for r in _rudin_signs(N)])
     return delta[k - 1]
 
 
