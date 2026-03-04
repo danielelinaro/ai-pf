@@ -69,7 +69,7 @@ def compute_amplitude_distribution(u, bins):
     return n / x.size, edges
 
 
-def compute_fourier_coeffs(freq, t, x, phase):
+def compute_fourier_coeffs(freq, t, x, phase=0.0, A=1.0):
     """
     Compute complex Fourier coefficients for one or multiple frequencies
     and phases.
@@ -89,6 +89,9 @@ def compute_fourier_coeffs(freq, t, x, phase):
     phase : float or array_like
         Phase offset(s) in radians applied to the complex Fourier basis
         functions. Must be broadcastable with `freq`.
+    A : float or array_like
+        Amplitude(s) applied to the complex Fourier basis functions.
+        Must be broadcastable with `freq`.
 
     Returns
     -------
@@ -114,12 +117,19 @@ def compute_fourier_coeffs(freq, t, x, phase):
     from scipy.integrate import trapezoid
     freq = np.atleast_1d(freq)
     phase = np.asarray(phase) + np.zeros_like(freq)
+    A = np.asarray(A) + np.zeros_like(freq)
     if t.size == x.shape[0]:
         x = x.T
     T = t[-1] - t[0]
+    # The `-` sign below is present in the definition of the Fourier
+    # integral. Note that in Eq. 3 of [1], the `-` sign is missing.
+    # [1] Bizzarri F, Brambilla A, Del Giudice D, Linaro D.
+    # An Active-Perturbation Method to Estimate Online Inertia and
+    # Damping in Electric Power Systems. In 2024 IEEE International
+    # Symposium on Circuits and Systems (ISCAS) 2024 May 19 (pp. 1-5).
     return np.array([
-        1.0 / T * (
-            trapezoid(x * np.cos(2 * np.pi * f * t + phi), t) +
-            1j * trapezoid(x * np.sin(2 * np.pi * f * t + phi), t)
-        ) for f, phi in zip(freq, phase)
+        2.0 / T * (
+            trapezoid(x * a * np.cos(2 * np.pi * f * t + phi), t) -
+            1j * trapezoid(x * a * np.sin(2 * np.pi * f * t + phi), t)
+        ) for f, phi, a in zip(freq, phase, A)
     ])
