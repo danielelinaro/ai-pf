@@ -26,6 +26,8 @@ def usage(exit_code=None):
     print(prefix + '<-I | --inputs filename>')
     print(prefix + '<-V | --vars-to-save var1<,var2,...> | filename>')
     print(prefix + '[--save-mat] [-v | --verbose] AC_data_file')
+    print('')
+    print("For Sardinia, use '--ref-sm CODCTI0201GGR1____GEN_____' or '--ref-sm Sardinia'.")
     if exit_code is not None:
         sys.exit(exit_code)
 
@@ -47,7 +49,6 @@ if __name__ == '__main__':
     # time constant of the OU process
     tau = 20e-3
     F0 = 50.
-    #ref_SM_name = 'CODCTI0201GGR1____GEN_____'
     ref_SM_name = None
     compute_additional_TFs = True
     use_numpy_inv = False
@@ -73,15 +74,14 @@ if __name__ == '__main__':
             steps_per_decade = int(sys.argv[i])
         elif arg in ('-L', '--loads'):
             i += 1
-            v = Path(sys.argv[i])
-            if v.exists():
-                with open(v) as fid:
+            if os.path.isfile(sys.argv[i]):
+                with open(sys.argv[i]) as fid:
                     if v.suffix == '.json':
                         input_loads = json.load(fid)['input_loads']
                     else:
                         input_loads = [l.strip() for l in fid]
             else:
-                input_loads = v.split(',')
+                input_loads = sys.argv[i].split(',')
         elif arg in ('-I', '--inputs'):
             i += 1
             fname = Path(sys.argv[i])
@@ -118,6 +118,8 @@ if __name__ == '__main__':
         elif arg == '--ref-sm':
             i += 1
             ref_SM_name = sys.argv[i]
+            if ref_SM_name.lower() == 'sardinia':
+                ref_SM_name = 'CODCTI0201GGR1____GEN_____'
         elif arg in ('-o','--outfile'):
             i += 1
             outfile = Path(sys.argv[i])
@@ -160,13 +162,6 @@ if __name__ == '__main__':
     if not data_file.exists():
         print(f'{progname}: {data_file}: no such file.')
         sys.exit(1)
-    
-    if len(dP) == 0 and len(sigmaP) == 0:
-        print(f'{progname}: either --dP or --sigmaP must be specified with --P.')
-        sys.exit(1)
-    elif len(dP) > 0 and len(sigmaP) > 0:
-        print(f'{progname}: only one of --dP and --sigmaP can be specified.')
-        sys.exit(1)
 
     if outfile is None:
         outfile = data_file.parent / (data_file.stem + \
@@ -193,12 +188,19 @@ if __name__ == '__main__':
         print(f'{progname}: you must specify the name of at least one load or input where the signal is injected.')
         sys.exit(1)
 
+    if input_loads is not None:
+        if len(dP) == 0 and len(sigmaP) == 0:
+            print(f'{progname}: either --dP or --sigmaP must be specified.')
+            sys.exit(1)
+        elif len(dP) > 0 and len(sigmaP) > 0:
+            print(f'{progname}: only one of --dP and --sigmaP can be specified.')
+            sys.exit(1)
+        if load_exp not in (0, 1, 2):
+            print(f'{progname}: load exponent must be 0, 1, or 2 for constant P, I, and Z, respectively.')
+            sys.exit(1)
+
     if S_base <= 0:
         print(f'{progname}: Sbase must be > 0.')
-        sys.exit(1)
-
-    if load_exp not in (0, 1, 2):
-        print(f'{progname}: load exponent must be 0, 1, or 2 for constant P, I, and Z, respectively.')
         sys.exit(1)
 
     if use_numpy_inv:
@@ -375,7 +377,7 @@ if __name__ == '__main__':
                 if 'block_name' in pars and pars['block_name'] is not None:
                     vars_key += '-' + pars['block_name']
                 vars_key += '-{}.{}'.format(pars['device_name'], pars['device_type'])
-                assert vars_key in vars_idx, f"'{var_key}': no such variable."
+                assert vars_key in vars_idx, f"'{vars_key}': no such variable."
                 input_rows[loc_name] = vars_idx[vars_key][pars['var_name']]
                 injection_coeffs[loc_name] = 1.
 
