@@ -46,6 +46,7 @@ if __name__ == '__main__':
     vars_to_save = None
     dP = []
     sigmaP = []
+    compute_OUT = False
     # time constant of the OU process
     tau = 20e-3
     F0 = 50.
@@ -106,9 +107,11 @@ if __name__ == '__main__':
         elif arg == '--dP':
             i += 1
             dP = list(map(float, sys.argv[i].split(',')))
+            compute_OUT = True
         elif arg == '--sigmaP':
             i += 1
             sigmaP = list(map(float, sys.argv[i].split(',')))
+            compute_OUT = True
         elif arg == '--F0':
             i += 1
             F0 = float(sys.argv[i])
@@ -189,10 +192,7 @@ if __name__ == '__main__':
         sys.exit(1)
 
     if input_loads is not None:
-        if len(dP) == 0 and len(sigmaP) == 0:
-            print(f'{progname}: either --dP or --sigmaP must be specified.')
-            sys.exit(1)
-        elif len(dP) > 0 and len(sigmaP) > 0:
+        if len(dP) > 0 and len(sigmaP) > 0:
             print(f'{progname}: only one of --dP and --sigmaP can be specified.')
             sys.exit(1)
         if load_exp not in (0, 1, 2):
@@ -290,25 +290,29 @@ if __name__ == '__main__':
     if input_loads is not None:
         load_buses = data['load_buses'].item()
         all_load_names = []
-        all_dP, all_sigmaP = [], []
+        if compute_OUT:
+            all_dP, all_sigmaP = [], []
         for i, input_load in enumerate(input_loads):
             if '*' in input_load:
                 for load in load_buses.keys():
                     if re.match(input_load, load):
                         all_load_names.append(load)
-                        _try_append(all_dP, dP, i)
-                        _try_append(all_sigmaP, sigmaP, i)
+                        if compute_OUT:
+                            _try_append(all_dP, dP, i)
+                            _try_append(all_sigmaP, sigmaP, i)
             elif input_load not in load_buses:
                 print(f'{progname}: cannot find load `{input_load}`.')
                 sys.exit(0)
             else:
                 all_load_names.append(input_load)
-                _try_append(all_dP, dP, i)
-                _try_append(all_sigmaP, sigmaP, i)
+                if compute_OUT:
+                    _try_append(all_dP, dP, i)
+                    _try_append(all_sigmaP, sigmaP, i)
         input_loads = all_load_names
-        dP, sigmaP = all_dP, all_sigmaP
-        dP = _fix_len(dP, input_loads)
-        sigmaP = _fix_len(sigmaP, input_loads)
+        if compute_OUT:
+            dP, sigmaP = all_dP, all_sigmaP
+            dP = _fix_len(dP, input_loads)
+            sigmaP = _fix_len(sigmaP, input_loads)
 
         input_rows.update({ld: np.zeros(2, dtype=int) for ld in input_loads})
         injection_coeffs.update({ld: np.zeros(2, dtype=float) for ld in input_loads})
@@ -354,14 +358,16 @@ if __name__ == '__main__':
                     print("Variable 'i{}' of object '{}' is at column {}: equation #{}.".\
                           format(suffix, input_load, col + 1, input_rows[input_load][j] + 1))
 
-            mean = PF_loads[input_load]['P']
-            if len(dP) > 0:
-                stddev = dP[i] * abs(mean)
-            else:
-                stddev = sigmaP[i]
-            mu[input_load] = mean
-            c[input_load] = stddev * np.sqrt(2. / tau)
-            alpha[input_load] = 1. / tau
+
+            if compute_OUT:
+                mean = PF_loads[input_load]['P']
+                if len(dP) > 0:
+                    stddev = dP[i] * abs(mean)
+                else:
+                    stddev = sigmaP[i]
+                mu[input_load] = mean
+                c[input_load] = stddev * np.sqrt(2. / tau)
+                alpha[input_load] = 1. / tau
         N_loads = len(input_loads)
     else:
         N_loads = 0
@@ -388,7 +394,8 @@ if __name__ == '__main__':
     TF = np.zeros((N_freq, N_inputs, N_state_vars + N_algebraic_vars), dtype=complex)
     # the absolute value of the spectra of the outputs are real numbers:
     # we will take the abs at the end of the function
-    OUT = np.zeros((N_freq, N_loads, N_state_vars + N_algebraic_vars), dtype=complex)
+    if compute_OUT:
+        OUT = np.zeros((N_freq, N_loads, N_state_vars + N_algebraic_vars), dtype=complex)
 
     for i in tqdm(range(N_freq), ascii=True, ncols=70):
         M = 1j * 2 * np.pi * F[i] * I - A # sI - A
@@ -399,7 +406,7 @@ if __name__ == '__main__':
             v[rows - N_state_vars] *= injection_coeffs[key]
             TF[i, j, :N_state_vars] = MinvxB @ v if use_at_matmul else np.dot(MinvxB, v)
             TF[i, j, N_state_vars:] = ((C @ MinvxB) + D) @ v if use_at_matmul else np.dot(np.dot(C, MinvxB) + D, v)
-            if key in alpha:
+            if compute_OUT and key in alpha:
                 psd = np.sqrt((c[key] / alpha[key])**2 / (1 + (2 * np.pi * F[i] / alpha[key])**2))
                 v[rows - N_state_vars] = psd
                 v[rows - N_state_vars] *= injection_coeffs[key]
@@ -416,7 +423,8 @@ if __name__ == '__main__':
     var_names = [var_names[i] for i in np.argsort(idx)]
 
     TF[TF == 0] = 1e-20 * (1 + 1j)
-    OUT[OUT == 0] = 1e-20 * (1 + 1j)
+    if compute_OUT:
+        OUT[OUT == 0] = 1e-20 * (1 + 1j)
 
     if compute_additional_TFs:
         if ref_SM_name is None:
@@ -436,7 +444,8 @@ if __name__ == '__main__':
         ref_SM_idx = var_names.index(full_var_name)
         N_buses = len(bus_names)
         TF2  = np.zeros(( TF.shape[0],  TF.shape[1], N_buses), dtype=complex)
-        OUT2 = np.zeros((OUT.shape[0], OUT.shape[1], N_buses), dtype=complex)
+        if compute_OUT:
+            OUT2 = np.zeros((OUT.shape[0], OUT.shape[1], N_buses), dtype=complex)
 
         def do_calc(X, coeffs, F, F0, ref):
             ret = np.zeros(X.shape[:2], dtype=complex)
@@ -460,11 +469,13 @@ if __name__ == '__main__':
                 if ur != 0:
                     coeffs = -ui / ur**2 / (1 + (ui / ur)**2), 1 / (ur * (1 + (ui / ur)**2))
                     TF2[:, :, i]  = do_calc( TF[:, :, idx], coeffs, F, F0,  TF[:, :, ref_SM_idx])
-                    OUT2[:, :, i] = do_calc(OUT[:, :, idx], coeffs, F, F0, OUT[:, :, ref_SM_idx])
+                    if compute_OUT:
+                        OUT2[:, :, i] = do_calc(OUT[:, :, idx], coeffs, F, F0, OUT[:, :, ref_SM_idx])
 
         var_names += [name + '.fe' for name in bus_names]
         TF  = np.concatenate((TF, TF2), axis=-1)
-        OUT = np.concatenate((OUT, OUT2), axis=-1)
+        if compute_OUT:
+            OUT = np.concatenate((OUT, OUT2), axis=-1)
         assert(len(var_names) == TF.shape[2])
 
     if vars_to_save is not None:
@@ -475,12 +486,13 @@ if __name__ == '__main__':
         print(f'Will save only {len(idx)} out of {len(var_names)} variables.')
         var_names = [var_names[i] for i in idx]
         TF = TF[:,:,idx]
-        OUT = OUT[:,:,idx]
+        if compute_OUT:
+            OUT = OUT[:,:,idx]
 
     Htot_SM = data['inertia']
     Etot_SM = data['energy']
     Mtot_SM = data['momentum']
-    out = {'A': A, 'F': F, 'TF': TF, 'OUT': OUT, 'var_names': var_names, 'SM_names': SM_names,
+    out = {'A': A, 'F': F, 'TF': TF, 'var_names': var_names, 'SM_names': SM_names,
            'static_gen_names': static_gen_names, 'bus_names': bus_names,
            'input_loads': input_loads, 'input_names': list(input_rows),
            'Htot_SM': Htot_SM, 'Etot_SM': Etot_SM, 'Mtot_SM': Mtot_SM,
@@ -489,6 +501,8 @@ if __name__ == '__main__':
            'PF': data['PF_without_slack'], 'bus_equiv_terms': data['bus_equiv_terms'],
            'mu': mu, 'c': c, 'alpha': alpha, 'dP': dP, 'sigmaP': sigmaP, 'ref_SM_name': ref_SM_name,
            'data_file': data_file, 'with_additional_TFs': compute_additional_TFs}
+    if compute_OUT:
+        out['OUT'] = OUT
     np.savez_compressed(outfile, **out)
     if save_mat:
         for k in out:
