@@ -42,7 +42,7 @@ if __name__ == '__main__':
     force = False
     outdir, outfile = '', None
     input_loads = None
-    inputs_dict = None
+    input_devs = None
     vars_to_save = None
     dP = []
     sigmaP = []
@@ -90,7 +90,7 @@ if __name__ == '__main__':
                 print(f'{fname}: no such file.')
                 sys.exit(1)
             with open(fname, 'r') as fid:
-                inputs_dict = json.load(fid)
+                input_devs = json.load(fid)
         elif arg in ('-V', '--vars-to-save'):
             i += 1
             v = Path(sys.argv[i])
@@ -187,7 +187,7 @@ if __name__ == '__main__':
         print(f'{progname}: F0 must be > 0.')
         sys.exit(1)
 
-    if input_loads is None and inputs_dict is None:
+    if input_loads is None and input_devs is None:
         print(f'{progname}: you must specify the name of at least one load or input where the signal is injected.')
         sys.exit(1)
 
@@ -372,20 +372,20 @@ if __name__ == '__main__':
     else:
         N_loads = 0
 
-    if inputs_dict is not None:
-        for key, V in inputs_dict.items():
-            for loc_name, pars in V.items():
-                vars_key = grid_name
-                if 'site_name' in pars and pars['site_name'] is not None:
-                    vars_key += '-' + pars['site_name']
-                if 'substation_name' in pars and pars['substation_name'] is not None:
-                    vars_key += '-' + pars['substation_name']
-                if 'block_name' in pars and pars['block_name'] is not None:
-                    vars_key += '-' + pars['block_name']
-                vars_key += '-{}.{}'.format(pars['device_name'], pars['device_type'])
-                assert vars_key in vars_idx, f"'{vars_key}': no such variable."
-                input_rows[loc_name] = vars_idx[vars_key][pars['var_name']]
-                injection_coeffs[loc_name] = 1.
+    if input_devs is not None:
+        for dev in input_devs:
+            key = grid_name
+            if 'site_name' in dev and dev['site_name'] not in ('', None):
+                key += '-' + dev['site_name']
+            if 'substation_name' in dev and dev['substation_name'] not in ('', None):
+                key += '-' + dev['substation_name']
+            if 'block_name' in dev and dev['block_name'] not in ('', None):
+                key += '-' + dev['block_name']
+            key += '-{}.{}'.format(dev['device_name'], dev['device_type'])
+            assert key in vars_idx, f"'{key}': no such variable."
+            loc_name = dev.get('loc_name', dev['device_name'])
+            input_rows[loc_name] = vars_idx[key][dev['var_name']]
+            injection_coeffs[loc_name] = 1.
 
     N_inputs = len(input_rows)
 
@@ -397,6 +397,7 @@ if __name__ == '__main__':
     if compute_OUT:
         OUT = np.zeros((N_freq, N_loads, N_state_vars + N_algebraic_vars), dtype=complex)
 
+    V = np.zeros((N_algebraic_vars, N_inputs))
     for i in tqdm(range(N_freq), ascii=True, ncols=70):
         M = 1j * 2 * np.pi * F[i] * I - A # sI - A
         MinvxB = np.dot(inv(M), B)        # (sI - A)^-1 x B
@@ -406,6 +407,7 @@ if __name__ == '__main__':
             v[rows - N_state_vars] *= injection_coeffs[key]
             TF[i, j, :N_state_vars] = MinvxB @ v if use_at_matmul else np.dot(MinvxB, v)
             TF[i, j, N_state_vars:] = ((C @ MinvxB) + D) @ v if use_at_matmul else np.dot(np.dot(C, MinvxB) + D, v)
+            V[:, j] = v
             if compute_OUT and key in alpha:
                 psd = np.sqrt((c[key] / alpha[key])**2 / (1 + (2 * np.pi * F[i] / alpha[key])**2))
                 v[rows - N_state_vars] = psd
@@ -443,7 +445,7 @@ if __name__ == '__main__':
         full_var_name = full_element_names[element_names.index(ref_SM_name)] + '.speed'
         ref_SM_idx = var_names.index(full_var_name)
         N_buses = len(bus_names)
-        TF2  = np.zeros(( TF.shape[0],  TF.shape[1], N_buses), dtype=complex)
+        TF2  = np.zeros((TF.shape[0], TF.shape[1], N_buses), dtype=complex)
         if compute_OUT:
             OUT2 = np.zeros((OUT.shape[0], OUT.shape[1], N_buses), dtype=complex)
 
@@ -452,14 +454,12 @@ if __name__ == '__main__':
             N_TF = X.shape[1]
             for j in range(N_TF):
                 ret[:, j] = coeffs[0] * X[:, j, 0] + coeffs[1] * X[:, j, 1]
-                ret[:, j] *= 1j * 2 * np.pi * F # Δω = jωΔθ
+                ret[:, j] *= 1j * 2 * np.pi * F # dw = jw dtheta
                 ret[:, j] /= 2 * np.pi * F0 # !!! scaling factor !!!
                 ret[:, j] += ref[:, j]
             return ret
 
         for i in tqdm(range(N_buses), ascii=True, ncols=70):
-            # name = bus_names[i]
-            # idx = var_names.index(name+'.ur'), var_names.index(name+'.ui')
             ### FIX THIS IN THE POWER FLOW LABELS
             name = bus_names[i].split('-')[-1].split('.')[0]
             if name in PF['buses']:
@@ -467,8 +467,9 @@ if __name__ == '__main__':
                                 var_names.index(bus_names[i] + '.ui')])
                 ur, ui = PF['buses'][name]['ur'], PF['buses'][name]['ui']
                 if ur != 0:
-                    coeffs = -ui / ur**2 / (1 + (ui / ur)**2), 1 / (ur * (1 + (ui / ur)**2))
-                    TF2[:, :, i]  = do_calc( TF[:, :, idx], coeffs, F, F0,  TF[:, :, ref_SM_idx])
+                    den = 1 / (ur ** 2 + ui ** 2)
+                    coeffs = - ui / den, ur / den
+                    TF2[:, :, i]  = do_calc(TF[:, :, idx], coeffs, F, F0, TF[:, :, ref_SM_idx])
                     if compute_OUT:
                         OUT2[:, :, i] = do_calc(OUT[:, :, idx], coeffs, F, F0, OUT[:, :, ref_SM_idx])
 
@@ -492,7 +493,8 @@ if __name__ == '__main__':
     Htot_SM = data['inertia']
     Etot_SM = data['energy']
     Mtot_SM = data['momentum']
-    out = {'A': A, 'F': F, 'TF': TF, 'var_names': var_names, 'SM_names': SM_names,
+    out = {'A': A, 'B': B, 'C': C, 'D': D, 'V': V, 'J': J, 'F': F, 'TF': TF,
+           'var_names': var_names, 'SM_names': SM_names,
            'static_gen_names': static_gen_names, 'bus_names': bus_names,
            'input_loads': input_loads, 'input_names': list(input_rows),
            'Htot_SM': Htot_SM, 'Etot_SM': Etot_SM, 'Mtot_SM': Mtot_SM,
