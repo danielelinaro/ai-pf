@@ -25,7 +25,7 @@ def usage(exit_code=None):
     print(prefix + '<-L | --loads load1<,load2,...> | filename>')
     print(prefix + '<-I | --inputs filename>')
     print(prefix + '<-V | --vars-to-save var1<,var2,...> | filename>')
-    print(prefix + '[--save-mat] [-v | --verbose] AC_data_file')
+    print(prefix + '[--save-mat] [-v | --verbose] [-G | --grid-name <name>] AC_data_file')
     print('')
     print("For Sardinia, use '--ref-sm CODCTI0201GGR1____GEN_____' or '--ref-sm Sardinia'.")
     if exit_code is not None:
@@ -57,6 +57,7 @@ if __name__ == '__main__':
     verbose = False
     S_base = 1 # [MVA]
     load_exp = 0 # constant P: 0, constant I: 1, constant Z: 2
+    grid_name = None
 
     i = 1
     N_args = len(sys.argv)
@@ -77,7 +78,7 @@ if __name__ == '__main__':
             i += 1
             if os.path.isfile(sys.argv[i]):
                 with open(sys.argv[i]) as fid:
-                    if v.suffix == '.json':
+                    if os.path.splitext(sys.argv[i])[1] == '.json':
                         input_loads = json.load(fid)['input_loads']
                     else:
                         input_loads = [l.strip() for l in fid]
@@ -146,6 +147,10 @@ if __name__ == '__main__':
         elif arg == '--load-exp':
             i += 1
             load_exp = int(sys.argv[i])
+        elif arg in ('-G', '--grid-name'):
+            i += 1
+            grid_name = sys.argv[i]
+            print('Grid name:', grid_name)
         elif arg[0] == '-':
             print(f'{progname}: unknown option `{arg}`.')
             sys.exit(1)
@@ -279,7 +284,8 @@ if __name__ == '__main__':
         return lst1
 
     full_element_names = list(vars_idx.keys())
-    grid_name = full_element_names[0].split('-')[0]
+    if grid_name is None:
+        grid_name = full_element_names[0].split('-')[0]
     print(f'Grid name: {grid_name}.')
     element_names = list(map(lambda s: s.split('.')[0].split('-')[-1], full_element_names))
     bus_equiv_terms = data['bus_equiv_terms'].item()
