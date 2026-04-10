@@ -448,6 +448,7 @@ if __name__ == '__main__':
                     break
             ref_SM_name = SM_names[idx-1]
         print(f'Will use "{ref_SM_name}" as reference.')
+        print(f'System frequency: {F0} Hz.')
         full_var_name = full_element_names[element_names.index(ref_SM_name)] + '.speed'
         ref_SM_idx = var_names.index(full_var_name)
         N_buses = len(bus_names)
