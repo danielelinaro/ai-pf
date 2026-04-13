@@ -50,8 +50,8 @@ def multitone(t, N, method='newman', N0=0, omega0=1.0):
 
 def compute_crest_factor(u, dt=1.0, dB=0):
     from scipy.integrate import trapezoid
-    t = np.arange(u.size) * dt
-    CF = np.max(np.abs(u)) / np.sqrt(trapezoid(u**2, t) / (t[-1] - t[0]))
+    T = u.size * dt
+    CF = np.max(np.abs(u)) / np.sqrt(trapezoid(np.abs(u)**2, dx=dt) / T)
     if dB > 0:
         return dB * np.log10(CF)
     return CF
