@@ -5,9 +5,11 @@ import numpy as np
 __all__ = [
     "shapiro_rudin_phase",
     "newman_phase",
-    "multitone",
     "compute_crest_factor",
     "compute_amplitude_distribution",
+    "multitone",
+    "multitone_opt",
+    "optimize_phases",
     "compute_fourier_coeffs",
 ]
 
@@ -33,7 +35,7 @@ def newman_phase(k, N):
     return math.pi * ((k - 1) ** 2) / N
 
 
-def multitone(t, N, method='newman', N0=0, omega0=1.0):
+def multitone(t, N, method='newman', N0=0, w0=1.0):
     if method.lower() in ('newman', 'n'):
         delta_fun = newman_phase
     elif method.lower() in ('shapiro-rudin', 'sr'):
@@ -44,8 +46,22 @@ def multitone(t, N, method='newman', N0=0, omega0=1.0):
     u = np.zeros_like(t)
     for k in range(1, N + 1):
         delta = delta_fun(k, N)
-        u += np.cos((k + N0) * omega0 * t + delta)
+        u += np.cos((k + N0) * w0 * t + delta)
     return np.sqrt(2 / N) * u
+
+
+def multitone_opt(t, N=None, phases=None, dw=1.0, w0=None, filename=None):
+    if w0 is None:
+        w0 = dw
+    if phases is None:
+        if filename is None:
+            assert N is not None
+            phases, _, _, _, _ = optimize_phases(dw, N, N_samples=5001, N_iters=2000, N_reps=10)
+        else:
+            phases = np.load(filename)['phases']
+    m = np.exp(1j * phases)
+    M = _compute_M(m, t, dw)
+    return (M * np.exp(1j * w0 * t)).real
 
 
 def compute_crest_factor(u, dt=1.0, dB=0):
@@ -67,6 +83,54 @@ def compute_amplitude_distribution(u, bins):
     n = np.zeros_like(edges)
     n = np.array([(x > e).sum() for e in edges], dtype=float)
     return n / x.size, edges
+
+
+def _compute_M(m, t, dw):
+    M = np.zeros_like(t, dtype=complex)
+    for i, mi in enumerate(m):
+        M += mi * np.exp(1j * i * dw * t)
+    return M
+
+
+def _compute_error(M, S):
+    E = np.zeros_like(M)
+    Ma = np.abs(M)
+    idx = Ma >= S
+    E[idx] = (Ma[idx] - S) * np.exp(1j * np.angle(M[idx]))
+    return E
+
+
+def optimize_phases(dw, N_tones, N_samples, N_iters, N_reps=1, S0=None):
+    from scipy.fft import fft
+    from tqdm import tqdm
+    if S0 is None:
+        S0 = 1.1 * np.sqrt(N_tones)
+    T = 2 * np.pi / dw
+    t = np.linspace(0, T, N_samples)
+    dt = t[1] - t[0]
+    m = np.zeros((N_iters, N_tones), dtype=complex)
+    S = np.zeros(N_iters)
+    CF = np.zeros(N_iters)
+    CF_min = None
+    for i in tqdm(range(N_reps), ascii=True, ncols=60):
+        m[0] = np.exp(1j * np.random.uniform(0, 2 * np.pi, N_tones))
+        S[0] = S0
+        M = _compute_M(m[0], t, dw)
+        CF[0] = compute_crest_factor(M, dt)
+        for j in range(1, N_iters):
+            e = _compute_error(M, S[j - 1])
+            ef = fft(e)[:N_tones] / e.size
+            m[j] = np.exp(1j * np.angle(m[j - 1] - ef))
+            S[j] = min(CF[j - 1] * np.sqrt(N_tones) * 0.95, S[j - 1] * 1.001)
+            M = _compute_M(m[j], t, dw)
+            CF[j] = compute_crest_factor(M, dt)
+        if CF_min is None or CF.min() < CF_min:
+            CF_min = CF.min()
+            CF_opt = CF
+            S_opt = S
+            m_opt = m[np.argmin(CF)]
+    M_opt = _compute_M(m_opt, t, dw)
+    return np.angle(m_opt), CF_opt, S_opt, t, M_opt
 
 
 def compute_fourier_coeffs(freq, t, x, phase=0.0, A=1.0):
@@ -133,3 +197,106 @@ def compute_fourier_coeffs(freq, t, x, phase=0.0, A=1.0):
             1j * trapezoid(x * a * np.sin(2 * np.pi * f * t + phi), t)
         ) for f, phi, a in zip(freq, phase, A)
     ])
+
+
+if __name__ == '__main__':
+    import os
+    import sys
+
+    progname = os.path.basename(sys.argv[0])
+    def usage(exit_code=None):
+        prefix = '       ' + ' ' * (len(progname) + 1)
+        print(f'usage: {progname} [-h | --help] [-o | --outfile <file>] [-f | --force]')
+        print(prefix + '[--N-samples <n>] [--N-iters <n>] [--N-reps <n>]')
+        print(prefix + '<-F <base frequency> <-N <number of tones>>')
+        if exit_code is not None:
+            sys.exit(exit_code)
+
+    F0 = None
+    N_tones = None
+    outfile = None
+    force = False
+    N_samples = 5001
+    N_iters = 2000
+    N_reps = 10
+
+    N_args = len(sys.argv)
+    if N_args == 1:
+        usage(0)
+
+    i = 1
+    while i < N_args:
+        arg = sys.argv[i]
+        if arg == '-F':
+            i += 1
+            F0 = float(sys.argv[i])
+        elif arg == '-N':
+            i += 1
+            N_tones = int(sys.argv[i])
+        elif arg in ('-h', '--help'):
+            usage(0)
+        elif arg in ('-f', '--force'):
+            force = True
+        elif arg in ('-o', '--outfile'):
+            i += 1
+            outfile = sys.argv[i]
+        elif arg == '--N-samples':
+            i += 1
+            N_samples = int(sys.argv[i])
+            assert N_samples > 0, 'number of samples must be positive'
+        elif arg == '--N-iters':
+            i += 1
+            N_iters = int(sys.argv[i])
+            assert N_iters > 0, 'number of iterations must be positive'
+        elif arg == '--N-reps':
+            i += 1
+            N_reps = int(sys.argv[i])
+            assert N_iters > 0, 'number of repetitions must be positive'
+        elif arg[0] == '-':
+            print(f'{progname}: unknown option `{arg}`.')
+            sys.exit(1)
+        else:
+            print(f'{progname}: positional arguments not required.')
+            sys.exit(2)
+        i += 1
+
+    if F0 is None:
+        print(f'{progname}: you must specify the base frequency via the -F option')
+        sys.exit(3)
+    assert F0 > 0, 'Base frequency must be positive'
+
+    if N_tones is None:
+        print(f'{progname}: you must specify the number of tones via the -N option')
+        sys.exit(4)
+    assert N_tones > 0, 'Number of tones must be positive'
+
+    if outfile is None:
+        outfile = 'multitone_phases_F0_{:.4f}_Hz_N_tones_{}.npz'.format(F0, N_tones)
+    elif len(os.path.splitext(outfile)[1]) < 2:
+        outfile = os.path.splitext(outfile)[0] + '.npz'
+    if os.path.isfile(outfile) and not force:
+        print(f'{progname}: {outfile} exists: use -f to force overwrite.')
+        sys.exit(5)
+
+    T = 1 / F0
+    dw = 2 * np.pi * F0
+    print(f'F0 = {F0:g} Hz')
+    print(f'T = {T:g} s')
+    print(f'Number of tones: {N_tones}')
+    print(f'Output file name: {outfile}')
+
+    phases, CF, S, t, _ = optimize_phases(dw, N_tones, N_samples, N_iters, N_reps)
+    np.savez_compressed(
+        outfile,
+        F0=F0,
+        T=T,
+        dw=dw,
+        dt=t[1] - t[0],
+        N_tones=N_tones,
+        N_samples=N_samples,
+        N_iters=N_iters,
+        N_reps=N_reps,
+        phases=phases,
+        CF=CF,
+        S=S,
+    )
