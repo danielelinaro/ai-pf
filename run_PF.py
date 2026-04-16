@@ -9,6 +9,8 @@ import re
 import os
 import sys
 import json
+import math
+import multitone
 from time import time as TIME
 import numpy as np
 from numpy.random import RandomState, SeedSequence, MT19937
@@ -902,7 +904,7 @@ def run_tran():
         elmres.Clear()
         elmres.Init()
         _ = _set_vars_to_save(elmres, config['record'], verbose=verbosity_level>1)
-        _ = _IC(dt, study_case, coiref=config['coiref'])
+        inc = _IC(dt, study_case, coiref=config['coiref'])
         sim = _tran(dt, tstop, study_case, elmres)
         err = inc.Execute()
         assert err == 0, "Cannot compute initial conditions"
@@ -1080,7 +1082,7 @@ def run_AC_analysis():
     pars = _collect_parameters(config.get('parameters_to_save', None))
 
     dt = 1e-3
-    _ = _IC(dt, study_case, coiref=config['coiref'])
+    inc = _IC(dt, study_case, coiref=config['coiref'])
     err = inc.Execute()
     assert err == 0, "Cannot compute initial conditions"
     print(f'Successfully computed initial condition (dt = {dt*1e3:.1f} ms).')
@@ -1326,7 +1328,7 @@ def run_AC_tran_analysis():
         n_samples = int(tstop / dt) + 1
         sin_load.write_to_file(dt, P, Q, f, n_samples, verbosity_level>2)
         try:
-            inc = _IC(dt, verbosity_level>1)
+            _ = _IC(dt, verbosity_level>1)
             sim,dur,err = _tran(ttran, verbosity_level>1)
             res, _ = _set_vars_to_save(config['record'], verbosity_level>2)
             sim,dur,err = _tran(tstop, verbosity_level>1)
@@ -1451,7 +1453,7 @@ def run_load_step_sim():
     load_event.dP = config['dP'] * 100
     load_event.dQ = config['dQ'] * 100
     
-    inc = _IC(config['dt'], verbosity_level>1)
+    _ = _IC(config['dt'], verbosity_level>1)
     res,_ = _set_vars_to_save(config['record'], verbosity_level>2)
     sim,dur,err = _tran(config['tstop'], verbosity_level>1)
     # setting the load as out of service because for some reason the following
