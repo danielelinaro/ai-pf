@@ -1,7 +1,10 @@
 ^Grid-[A-Za-z0-9_-]+GEN_____\.ElmSym\.speed$
 #^Grid-[A-Za-z0-9_-]+GEN_____\.ElmSym\.i[ri]$
+^Grid-[A-Za-z0-9_-]+BUS_____\.ElmTerm\.u$
+^Grid-[A-Za-z0-9_-]+BUS_____\.ElmTerm\.u2$
+^Grid-[A-Za-z0-9_-]+BUS_____\.ElmTerm\.u[ri]$
 ^Grid-[A-Za-z0-9_-]+BUS_____\.ElmTerm\.fe$
-#^Grid-[A-Za-z0-9_-]+BUS_____\.ElmTerm\.u[ri]$
+^Grid-[A-Za-z0-9_-]+BUS_____\.ElmTerm\.delta$
 ^Grid-.*\.ElmGenstat\.xspeed$
 ^Grid-.*\.StaVmea\.fe$
 ^Grid-.*-GFM_[0-9]+-Power_Control_[0-9]+\.ElmDsl\.x1$

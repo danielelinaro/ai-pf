@@ -553,7 +553,8 @@ if __name__ == '__main__':
            'S_SG': data['Ssg'].item(), 'DSL_params': data['DSL_params'].item(),
            'PF': data['PF_without_slack'], 'bus_equiv_terms': data['bus_equiv_terms'],
            'mu': mu, 'c': c, 'alpha': alpha, 'dP': dP, 'sigmaP': sigmaP, 'ref_SM_name': ref_SM_name,
-           'data_file': data_file, 'with_additional_TFs': compute_additional_TFs}
+           'data_file': data_file, 'with_additional_TFs': compute_additional_TFs,
+           'vars_idx': vars_idx}
     if compute_OUT:
         out['OUT'] = OUT
     np.savez_compressed(outfile, **out)
