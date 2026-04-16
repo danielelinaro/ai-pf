@@ -9,8 +9,6 @@ import re
 import os
 import sys
 import json
-import math
-import multitone
 from time import time as TIME
 import numpy as np
 from numpy.random import RandomState, SeedSequence, MT19937
@@ -476,7 +474,7 @@ def _get_attributes(record_map, verbose=False):
                             obj = dev
                             for subattr in attr_name.split('.'):
                                 if '[' in subattr:
-                                    idx = int(re.search('\[\d+\]', subattr)[0][1:-1])
+                                    idx = int(re.search('\\[[0-9]+\\]', subattr)[0][1:-1])
                                     subattr_name = subattr.split('[')[0]
                                     obj = obj.GetAttribute(subattr_name)[idx]
                                 else:
@@ -904,7 +902,7 @@ def run_tran():
         elmres.Clear()
         elmres.Init()
         _ = _set_vars_to_save(elmres, config['record'], verbose=verbosity_level>1)
-        inc = _IC(dt, study_case, coiref=config['coiref'])
+        _ = _IC(dt, study_case, coiref=config['coiref'])
         sim = _tran(dt, tstop, study_case, elmres)
         err = inc.Execute()
         assert err == 0, "Cannot compute initial conditions"
@@ -1082,7 +1080,7 @@ def run_AC_analysis():
     pars = _collect_parameters(config.get('parameters_to_save', None))
 
     dt = 1e-3
-    inc = _IC(dt, study_case, coiref=config['coiref'])
+    _ = _IC(dt, study_case, coiref=config['coiref'])
     err = inc.Execute()
     assert err == 0, "Cannot compute initial conditions"
     print(f'Successfully computed initial condition (dt = {dt*1e3:.1f} ms).')

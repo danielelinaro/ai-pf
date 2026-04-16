@@ -213,9 +213,6 @@ if __name__ == '__main__':
     else:
         from scipy.linalg import inv
 
-    import platform
-    use_at_matmul = not 'arm64' in platform.platform()
-
     N_freq = int(fmax - fmin) * steps_per_decade + 1
     F = np.logspace(fmin, fmax, N_freq)    
 
@@ -260,14 +257,14 @@ if __name__ == '__main__':
     print('Shape of Jgx: {}'.format(Jgx.shape))
     print('Shape of Jgy: {}'.format(Jgy.shape))
     Jgy_inv = inv(Jgy)
-    A = Jfx - (Jfy @ Jgy_inv @ Jgx if use_at_matmul else np.dot(np.dot(Jfy, Jgy_inv), Jgx))
+    A = Jfx - Jfy @ Jgy_inv @ Jgx
     assert np.allclose(A, Amat), 'Error in the computation of the matrix A'
     eig, _ = np.linalg.eig(A)
     if any(eig.real > 0):
         print('>>> Some eigenvalues are positive (max value: {:.3e}): results may be inaccurate! <<<'.\
               format(max(eig.real)))
-    B = - (Jfy @ Jgy_inv if use_at_matmul else np.dot(Jfy, Jgy_inv))
-    C = - (Jgy_inv @ Jgx if use_at_matmul else np.dot(Jgy_inv, Jgx))
+    B = - Jfy @ Jgy_inv
+    C = - Jgy_inv @ Jgx
     D = - Jgy_inv
     print('Shape of A: {}'.format(A.shape))
     print('Shape of B: {}'.format(B.shape))
@@ -411,15 +408,15 @@ if __name__ == '__main__':
             v = np.zeros(N_algebraic_vars)
             v[rows - N_state_vars] = 1.
             v[rows - N_state_vars] *= injection_coeffs[key]
-            TF[i, j, :N_state_vars] = MinvxB @ v if use_at_matmul else np.dot(MinvxB, v)
-            TF[i, j, N_state_vars:] = ((C @ MinvxB) + D) @ v if use_at_matmul else np.dot(np.dot(C, MinvxB) + D, v)
+            TF[i, j, :N_state_vars] = MinvxB @ v
+            TF[i, j, N_state_vars:] = ((C @ MinvxB) + D) @ v
             V[:, j] = v
             if compute_OUT and key in alpha:
                 psd = np.sqrt((c[key] / alpha[key])**2 / (1 + (2 * np.pi * F[i] / alpha[key])**2))
                 v[rows - N_state_vars] = psd
                 v[rows - N_state_vars] *= injection_coeffs[key]
-                OUT[i, j, :N_state_vars] = MinvxB @ v if use_at_matmul else np.dot(MinvxB, v)
-                OUT[i, j, N_state_vars:] = ((C @ MinvxB) + D) @ v if use_at_matmul else np.dot(np.dot(C, MinvxB) + D, v)
+                OUT[i, j, :N_state_vars] = MinvxB @ v
+                OUT[i, j, N_state_vars:] = ((C @ MinvxB) + D) @ v
 
     var_names, idx = [], []
     for k1, D1 in vars_idx.items():
@@ -452,15 +449,17 @@ if __name__ == '__main__':
         full_var_name = full_element_names[element_names.index(ref_SM_name)] + '.speed'
         ref_SM_idx = var_names.index(full_var_name)
         N_buses = len(bus_names)
-        TF_u = np.zeros((TF.shape[0], TF.shape[1], N_buses), dtype=complex)
-        TF_u2 = np.zeros((TF.shape[0], TF.shape[1], N_buses), dtype=complex)
-        TF_delta = np.zeros((TF.shape[0], TF.shape[1], N_buses), dtype=complex)
-        TF_fe = np.zeros((TF.shape[0], TF.shape[1], N_buses), dtype=complex)
+        shp = TF.shape[0], TF.shape[1], N_buses
+        TF_u = np.zeros(shp, dtype=complex)
+        TF_u2 = np.zeros(shp, dtype=complex)
+        TF_delta = np.zeros(shp, dtype=complex)
+        TF_fe = np.zeros(shp, dtype=complex)
         if compute_OUT:
-            OUT_u = np.zeros((OUT.shape[0], OUT.shape[1], N_buses), dtype=complex)
-            OUT_u2 = np.zeros((OUT.shape[0], OUT.shape[1], N_buses), dtype=complex)
-            OUT_delta = np.zeros((OUT.shape[0], OUT.shape[1], N_buses), dtype=complex)
-            OUT_fe = np.zeros((OUT.shape[0], OUT.shape[1], N_buses), dtype=complex)
+            shp = OUT.shape[0], OUT.shape[1], N_buses
+            OUT_u = np.zeros(shp, dtype=complex)
+            OUT_u2 = np.zeros(shp, dtype=complex)
+            OUT_delta = np.zeros(shp, dtype=complex)
+            OUT_fe = np.zeros(shp, dtype=complex)
 
         def combine_TFs(X, coeffs):
             assert len(coeffs) == X.shape[-1], "Number of coefficients must equal the last dimension of X"
@@ -487,9 +486,9 @@ if __name__ == '__main__':
                 idx = np.array([var_names.index(bus_names[i] + '.ur'),
                                 var_names.index(bus_names[i] + '.ui')])
                 ur, ui = PF['buses'][name]['ur'], PF['buses'][name]['ui']
-                if ur == 0:
-                    import ipdb
-                    ipdb.set_trace()
+                if ur == 0 and ui == 0:
+                    print(f'ur = ui = 0 @ bus {name}')
+                    continue
                 # voltage absolute value
                 den = 1 / np.sqrt(ur ** 2 + ui ** 2)
                 coeffs = ur / den, ui / den
