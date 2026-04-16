@@ -452,19 +452,33 @@ if __name__ == '__main__':
         full_var_name = full_element_names[element_names.index(ref_SM_name)] + '.speed'
         ref_SM_idx = var_names.index(full_var_name)
         N_buses = len(bus_names)
-        TF2  = np.zeros((TF.shape[0], TF.shape[1], N_buses), dtype=complex)
+        TF_u = np.zeros((TF.shape[0], TF.shape[1], N_buses), dtype=complex)
+        TF_u2 = np.zeros((TF.shape[0], TF.shape[1], N_buses), dtype=complex)
+        TF_delta = np.zeros((TF.shape[0], TF.shape[1], N_buses), dtype=complex)
+        TF_fe = np.zeros((TF.shape[0], TF.shape[1], N_buses), dtype=complex)
         if compute_OUT:
-            OUT2 = np.zeros((OUT.shape[0], OUT.shape[1], N_buses), dtype=complex)
+            OUT_u = np.zeros((OUT.shape[0], OUT.shape[1], N_buses), dtype=complex)
+            OUT_u2 = np.zeros((OUT.shape[0], OUT.shape[1], N_buses), dtype=complex)
+            OUT_delta = np.zeros((OUT.shape[0], OUT.shape[1], N_buses), dtype=complex)
+            OUT_fe = np.zeros((OUT.shape[0], OUT.shape[1], N_buses), dtype=complex)
 
-        def do_calc(X, coeffs, F, F0, ref):
+        def combine_TFs(X, coeffs):
+            assert len(coeffs) == X.shape[-1], "Number of coefficients must equal the last dimension of X"
             ret = np.zeros(X.shape[:2], dtype=complex)
             N_TF = X.shape[1]
             for j in range(N_TF):
-                ret[:, j] = coeffs[0] * X[:, j, 0] + coeffs[1] * X[:, j, 1]
-                ret[:, j] *= 1j * 2 * np.pi * F # dw = jw dtheta
-                ret[:, j] /= 2 * np.pi * F0 # !!! scaling factor !!!
-                ret[:, j] += ref[:, j]
+                for k, c in enumerate(coeffs):
+                    ret[:, j] += c * X[:, j, k]
             return ret
+
+        def compute_fe_TF(X, coeffs, F, F0, ref):
+            # combine_TFs returns the transfer function of the angle between
+            # the real and imaginary parts of the voltage, i.e., atan(ui / ur)
+            # we then compute the derivative by multiplying by 1j * 2 * pi * F
+            # we then convert to per units by dividing by 2 * pi * F0
+            # finally, we add the transfer function of the rotor speed of the
+            # reference machine
+            return ref + 1j * F[:, np.newaxis] / F0 * combine_TFs(X, coeffs)
 
         for i in tqdm(range(N_buses), ascii=True, ncols=70):
             ### FIX THIS IN THE POWER FLOW LABELS
@@ -473,17 +487,48 @@ if __name__ == '__main__':
                 idx = np.array([var_names.index(bus_names[i] + '.ur'),
                                 var_names.index(bus_names[i] + '.ui')])
                 ur, ui = PF['buses'][name]['ur'], PF['buses'][name]['ui']
-                if ur != 0:
-                    den = 1 / (ur ** 2 + ui ** 2)
-                    coeffs = - ui / den, ur / den
-                    TF2[:, :, i]  = do_calc(TF[:, :, idx], coeffs, F, F0, TF[:, :, ref_SM_idx])
-                    if compute_OUT:
-                        OUT2[:, :, i] = do_calc(OUT[:, :, idx], coeffs, F, F0, OUT[:, :, ref_SM_idx])
+                if ur == 0:
+                    import ipdb
+                    ipdb.set_trace()
+                # voltage absolute value
+                den = 1 / np.sqrt(ur ** 2 + ui ** 2)
+                coeffs = ur / den, ui / den
+                TF_u[:, :, i]  = combine_TFs(TF[:, :, idx], coeffs)
+                if compute_OUT:
+                    OUT_u[:, :, i] = combine_TFs(OUT[:, :, idx], coeffs)
 
-        var_names += [name + '.fe' for name in bus_names]
-        TF  = np.concatenate((TF, TF2), axis=-1)
+                # voltage absolute value squared
+                coeffs = 2 * ur, 2 * ui
+                TF_u2[:, :, i]  = combine_TFs(TF[:, :, idx], coeffs)
+                if compute_OUT:
+                    OUT_u2[:, :, i] = combine_TFs(OUT[:, :, idx], coeffs)
+
+                # angle and electrical frequency
+                den = 1 / (ur ** 2 + ui ** 2)
+                coeffs = - ui / den, ur / den
+                TF_delta[:, :, i]  = combine_TFs(TF[:, :, idx], coeffs)
+                TF_fe[:, :, i]  = compute_fe_TF(TF[:, :, idx], coeffs, F, F0, TF[:, :, ref_SM_idx])
+                if compute_OUT:
+                    OUT_delta[:, :, i] = combine_TFs(OUT[:, :, idx], coeffs)
+                    OUT_fe[:, :, i] = compute_fe_TF(OUT[:, :, idx], coeffs, F, F0, OUT[:, :, ref_SM_idx])
+
+        TF = np.concatenate((TF, TF_u), axis=-1)
         if compute_OUT:
-            OUT = np.concatenate((OUT, OUT2), axis=-1)
+            OUT = np.concatenate((OUT, OUT_u), axis=-1)
+        var_names += [name + '.u' for name in bus_names]
+        TF = np.concatenate((TF, TF_u2), axis=-1)
+        if compute_OUT:
+            OUT = np.concatenate((OUT, OUT_u2), axis=-1)
+        var_names += [name + '.u2' for name in bus_names]
+        TF = np.concatenate((TF, TF_delta), axis=-1)
+        if compute_OUT:
+            OUT = np.concatenate((OUT, OUT_delta), axis=-1)
+        var_names += [name + '.delta' for name in bus_names]
+        TF = np.concatenate((TF, TF_fe), axis=-1)
+        if compute_OUT:
+            OUT = np.concatenate((OUT, OUT_fe), axis=-1)
+        var_names += [name + '.fe' for name in bus_names]
+
         assert(len(var_names) == TF.shape[2])
 
     if vars_to_save is not None:
