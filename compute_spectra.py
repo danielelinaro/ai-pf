@@ -564,6 +564,7 @@ if __name__ == '__main__':
                 out[k] = []
             elif isinstance(out[k], Path):
                 out[k] = str(out[k])
+        out.pop('vars_idx')
         savemat(outfile.parent / (outfile.stem + '.mat'), out, long_field_names=True)
 
     tend = TIME()
