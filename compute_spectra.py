@@ -550,11 +550,14 @@ if __name__ == '__main__':
            'input_loads': input_loads, 'input_names': list(input_rows),
            'Htot_SM': Htot_SM, 'Etot_SM': Etot_SM, 'Mtot_SM': Mtot_SM,
            'H_SM': H_SM, 'S_SM': S_SM, 'P_SM': P_SM, 'Q_SM': Q_SM,
-           'S_SG': data['Ssg'].item(), 'DSL_params': data['DSL_params'].item(),
            'PF': data['PF_without_slack'], 'bus_equiv_terms': data['bus_equiv_terms'],
            'mu': mu, 'c': c, 'alpha': alpha, 'dP': dP, 'sigmaP': sigmaP, 'ref_SM_name': ref_SM_name,
            'data_file': data_file, 'with_additional_TFs': compute_additional_TFs,
            'vars_idx': vars_idx}
+    if 'Ssg' in data:
+        out['S_SG'] = data['Ssg'].item()
+    if 'DSL_params' in data:
+        out['DSL_params'] = data['DSL_params'].item()
     if compute_OUT:
         out['OUT'] = OUT
     np.savez_compressed(outfile, **out)
