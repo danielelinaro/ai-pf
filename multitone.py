@@ -133,7 +133,7 @@ def optimize_phases(dw, N_tones, N_samples, N_iters, N_reps=1, S0=None):
     return np.angle(m_opt), CF_opt, S_opt, t, M_opt
 
 
-def compute_fourier_coeffs(freq, t, x, phase=0.0, A=1.0):
+def compute_fourier_coeffs(freq, t, x, phase=0.0, A=1.0, iter_fun=None):
     """
     Compute complex Fourier coefficients for one or multiple frequencies
     and phases.
@@ -191,12 +191,21 @@ def compute_fourier_coeffs(freq, t, x, phase=0.0, A=1.0):
     # An Active-Perturbation Method to Estimate Online Inertia and
     # Damping in Electric Power Systems. In 2024 IEEE International
     # Symposium on Circuits and Systems (ISCAS) 2024 May 19 (pp. 1-5).
-    return np.array([
-        2.0 / T * (
-            trapezoid(x * a * np.cos(2 * np.pi * f * t + phi), t) -
-            1j * trapezoid(x * a * np.sin(2 * np.pi * f * t + phi), t)
-        ) for f, phi, a in zip(freq, phase, A)
-    ])
+    if iter_fun is None:
+        return np.array([
+            2.0 / T * (
+                trapezoid(x * a * np.cos(2 * np.pi * f * t + phi), t) -
+                1j * trapezoid(x * a * np.sin(2 * np.pi * f * t + phi), t)
+            ) for f, phi, a in zip(freq, phase, A)
+        ])
+    M, N = freq.size, x.shape[0]
+    coeffs = np.zeros((M, N), dtype=complex)
+    for i in iter_fun(range(M)):
+        coeffs[i] = 2.0 / T * (
+            trapezoid(x * A[i] * np.cos(2 * np.pi * freq[i] * t + phase[i]), t) -
+            1j * trapezoid(x * A[i] * np.sin(2 * np.pi * freq[i] * t + phase[i]), t)
+        )
+    return coeffs
 
 
 if __name__ == '__main__':

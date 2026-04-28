@@ -13,7 +13,11 @@ EXE = SM_with_load
 SM_with_load: SM_with_load.o
 	$(CC) -o $(EXE) SM_with_load.o $(LDFLAGS) $(LIBS) 
 
+lib: ops.c
+	$(CC) -fPIC -shared -o libops.so ops.c -lm
+
 clean:
 	rm -f $(EXE)
 	rm -f *.o
+	rm -f *.so
 	rm -f *~
