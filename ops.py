@@ -69,7 +69,7 @@ def compute_fe_py(t, ur, ui, f0, omega_ref):
     omega = np.diff(delta) / np.diff(t)
     omega = np.concatenate([omega[:1], omega])
     omega /= 2 * np.pi * f0
-    return omega + omega_ref + 1.0
+    return omega + omega_ref
 
 
 if __name__ == '__main__':
