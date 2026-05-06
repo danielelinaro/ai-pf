@@ -78,6 +78,7 @@ def _IC(dt, study_case, coiref=0):
     inc.iopt_show = 1
     inc.iopt_coiref = 2
     inc.tstart = 0
+    inc.iopt_adapt = 0 # uses a fixed time step...
     inc.dtgrd = dt    # [s]
     if isinstance(coiref, str):
         if coiref not in coirefs:
@@ -115,11 +116,17 @@ def _set_vars_to_save(elmres, record_map, verbose=False):
         except:
             key = dev_type
         device_names[key] = []
-        for dev in devices:
-            if (isinstance(record_map[dev_type]['names'], str) and \
-                (record_map[dev_type]['names'] == '*' or \
-                 re.match(record_map[dev_type]['names'], dev.loc_name) is not None)) or \
-                dev.loc_name in record_map[dev_type]['names']:
+        for dev in devices:            
+            if (
+                    isinstance(record_map[dev_type]['names'], str) and \
+                    (record_map[dev_type]['names'] == '*' or \
+                    re.match(record_map[dev_type]['names'], dev.loc_name) is not None)
+                ) or (
+                    isinstance(record_map[dev_type]['names'], (list, tuple)) and \
+                    any([re.match(pattern, dev.loc_name) is not None for pattern in record_map[dev_type]['names']])
+                ) or (
+                dev.loc_name in record_map[dev_type]['names']
+                ):
                 if verbose: sys.stdout.write(f'{dev.loc_name}:')
                 for var_name in record_map[dev_type]['vars']:
                     err = elmres.AddVariable(dev, var_name)
@@ -522,8 +529,8 @@ def _get_data(res, record_map, data_obj, interval=(0,None), dt=None, verbose=Fal
     data = {}
     for dev_type in record_map:
         devices = _get_objects('*.' + dev_type)
-        if isinstance(record_map[dev_type]['names'], list):
-            devices = [dev for dev in devices if dev.loc_name in record_map[dev_type]['names']]
+        if isinstance(record_map[dev_type]['names'], (list, tuple)):
+            devices = [dev for dev in devices if (dev.loc_name in record_map[dev_type]['names'] or any([re.match(pattern, dev.loc_name) is not None for pattern in record_map[dev_type]['names']]))]
         elif isinstance(record_map[dev_type]['names'], str) and record_map[dev_type]['names'] != '*':
             devices = [dev for dev in devices if re.match(record_map[dev_type]['names'], dev.loc_name) is not None]
         try:
@@ -751,6 +758,7 @@ def run_tran():
         config['coiref'] = 'element'
 
     project_name = config['project_name']
+    print(project_name)
     
     if outfile is None:
         outfile = '{}_tran.npz'.format(project_name)
@@ -762,6 +770,7 @@ def run_tran():
     PF_db_name = config['db_name'] if 'db_name' in config else 'Terna_Inerzia'
     project_name = '\\' + PF_db_name + '\\' + project_name
     study_case_name = config['study_case_name']
+    print(study_case_name)
     project, study_case = _activate_project(project_name, study_case_name, verbosity_level>0)
     _print_network_info()
     
@@ -852,32 +861,44 @@ def run_tran():
         all_elm_files = PF_APP.GetCalcRelevantObjects('*.ElmFile')
         for inp in config['inputs']:
             found = False
-            for site in all_sites:
-                if site.loc_name == inp['site']:
-                    for substation in site.GetContents():
-                        if substation.loc_name == inp['substation']:
-                            for comp_model in substation.GetContents():
-                                if comp_model.loc_name == inp['name']:
-                                    for elem in comp_model.pelm:
-                                        if elem in all_elm_files:
-                                            fun = np.vectorize(eval(inp['waveform']), otypes=[list])
-                                            X = fun(t)
-                                            n_cols = len(X[0])
-                                            print('Writing to file {}...'.format(elem.f_name))
-                                            with open(elem.f_name, 'w') as fid:
-                                                fid.write('{}\n'.format(n_cols))
-                                                for i in range(t.size):
-                                                    fid.write(f'{t[i]:g}')
-                                                    for j in range(n_cols):
-                                                        fid.write(f' {X[i][j]:g}')
-                                                    fid.write('\n')
-                                    found = True
-                                    break
-                        if found:
-                            break
-                if found:
-                    break
+            
+            if 'site' in inp and 'substation' in inp:
+                for site in all_sites:
+                    if site.loc_name == inp['site']:
+                        for substation in site.GetContents():
+                            if substation.loc_name == inp['substation']:
+                                for comp_model in substation.GetContents():
+                                    print(comp_model.loc_name)
+                                    if comp_model.loc_name == inp['name']:
+                                        found = True
+                                        break
+                            if found:
+                                break
+                    if found:
+                        break
+            else: #no site definition exists
+                comp_models  = PF_APP.GetCalcRelevantObjects('*.ElmComp')
+                for comp_model in comp_models:
+                    print(comp_model.loc_name)
+                    if comp_model.loc_name == inp['name']:
+                        found = True
+                        break
+                
             assert found, "Device '{}' not found.".format(inp['name'])
+            for elem in comp_model.pelm:
+                if elem in all_elm_files:
+                    fun = np.vectorize(eval(inp['waveform']), otypes=[list])
+                    X = fun(t)
+                    n_cols = len(X[0])
+                    print('Writing to file {}...'.format(elem.f_name))
+                    with open(elem.f_name, 'w') as fid:
+                        fid.write('{}\n'.format(n_cols))
+                        for i in range(t.size):
+                            fid.write(f'{t[i]:.6f}')
+                            for j in range(n_cols):
+                                fid.write(f' {X[i][j]:.6f}')
+                            fid.write('\n')
+                                                    
         
     PF1, PF2 = _apply_configuration(config, verbosity_level)
 
