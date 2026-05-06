@@ -5,7 +5,6 @@ Created on Tue May 30 11:54:00 2023
 @author: Daniele Linaro
 """
 
-import re
 import os
 import sys
 import json
@@ -104,11 +103,22 @@ def _tran(dt, tstop, study_case, elmres):
     return sim
 
 
+def _name_in_patterns(name, patterns):
+    import re
+    assert isinstance(patterns, (list, tuple, str)), "'patterns' must be a list, tuple or string"
+    if isinstance(patterns, (list, tuple)):
+        return any(match(pattern, name) is not None for pattern in patterns)
+    if patterns == '*':
+        return True
+    return re.match(patterns, name) is not None
+
+
 def _set_vars_to_save(elmres, record_map, verbose=False):
     ### tell PowerFactory which variables should be saved to its internal file
     # speed, electrical power, mechanical torque, electrical torque, terminal voltage
     device_names = {}
-    if verbose: print('Adding the following quantities to the list of variables to be saved:')
+    if verbose:
+        print('Adding the following quantities to the list of variables to be saved:')
     for dev_type in record_map:
         devices = _get_objects('*.' + dev_type)
         try:
@@ -116,24 +126,17 @@ def _set_vars_to_save(elmres, record_map, verbose=False):
         except:
             key = dev_type
         device_names[key] = []
-        for dev in devices:            
-            if (
-                    isinstance(record_map[dev_type]['names'], str) and \
-                    (record_map[dev_type]['names'] == '*' or \
-                    re.match(record_map[dev_type]['names'], dev.loc_name) is not None)
-                ) or (
-                    isinstance(record_map[dev_type]['names'], (list, tuple)) and \
-                    any([re.match(pattern, dev.loc_name) is not None for pattern in record_map[dev_type]['names']])
-                ) or (
-                dev.loc_name in record_map[dev_type]['names']
-                ):
-                if verbose: sys.stdout.write(f'{dev.loc_name}:')
+        for dev in devices:
+            if _name_in_patterns(dev.loc_name, record_map[dev_type]['names']):
+                if verbose:
+                    sys.stdout.write(f'{dev.loc_name}:')
                 for var_name in record_map[dev_type]['vars']:
                     err = elmres.AddVariable(dev, var_name)
                     assert err == 0, f"Cannot record variable '{var_name}' of device '{dev.loc_name}'"
                     if verbose: sys.stdout.write(f' {var_name}')
                 device_names[key].append(dev.loc_name)
-                if verbose: sys.stdout.write('\n')
+                if verbose:
+                    sys.stdout.write('\n')
     return device_names
 
 
@@ -161,7 +164,8 @@ def _activate_project(project_name, study_case_name=None, verbose=False):
     err = PF_APP.ActivateProject(project_name)
     if err:
         raise Exception(f'Cannot activate project "{project_name}".')
-    if verbose: print(f'Activated project "{project_name}".')
+    if verbose:
+        print(f'Activated project "{project_name}".')
     ### Get the active project
     project = PF_APP.GetActiveProject()
     if project is None:
@@ -172,7 +176,8 @@ def _activate_project(project_name, study_case_name=None, verbose=False):
         for study_case in study_cases:
             if study_case.loc_name == study_case_name:
                 err = study_case.Activate()
-                if verbose: print(f'Activated study case "{study_case_name}".')
+                if verbose:
+                    print(f'Activated study case "{study_case_name}".')
                 return project, study_case
     return project, None
 
@@ -457,10 +462,12 @@ def _compute_measures(fn, verbose=False):
 
 
 def _get_attributes(record_map, verbose=False):
+    import re
     device_names = {}
     attributes = {}
     ref_SMs = []
-    if verbose: print('Getting the following attributes:')
+    if verbose:
+        print('Getting the following attributes:')
     for dev_type in record_map:
         devices = _get_objects('*.' + dev_type)
         try:
@@ -469,12 +476,10 @@ def _get_attributes(record_map, verbose=False):
             key = dev_type
         device_names[key] = []
         attributes[key] = {}
-        names = record_map[dev_type]['names']
         for dev in devices:
-            if (isinstance(names,str) and \
-                (names == '*' or re.match(names, dev.loc_name) is not None)) or \
-               (isinstance(names,list) and dev.loc_name in names):
-                if verbose: sys.stdout.write(f'{dev.loc_name}:')
+            if _name_in_patterns(dev.loc_name, record_map[dev_type]['names']):
+                if verbose:
+                    sys.stdout.write(f'{dev.loc_name}:')
                 if 'attrs' in record_map[dev_type]:
                     for attr_name in record_map[dev_type]['attrs']:
                         if attr_name not in attributes[key]:
@@ -491,11 +496,13 @@ def _get_attributes(record_map, verbose=False):
                             attributes[key][attr_name].append(obj)
                         else:
                             attributes[key][attr_name].append(dev.GetAttribute(attr_name))
-                        if verbose: sys.stdout.write(f' {attr_name}')
+                        if verbose:
+                            sys.stdout.write(f' {attr_name}')
                 device_names[key].append(dev.loc_name)
                 if dev_type == 'ElmSym' and dev.ip_ctrl:
                     ref_SMs.append(dev.loc_name)
-                if verbose: sys.stdout.write('\n')
+                if verbose:
+                    sys.stdout.write('\n')
     return attributes, device_names, ref_SMs
 
 
@@ -528,20 +535,14 @@ def _get_data(res, record_map, data_obj, interval=(0,None), dt=None, verbose=Fal
         sys.stdout.flush()
     data = {}
     for dev_type in record_map:
-        devices = _get_objects('*.' + dev_type)
-        if isinstance(record_map[dev_type]['names'], (list, tuple)):
-            devices = [dev for dev in devices if (dev.loc_name in record_map[dev_type]['names'] or any([re.match(pattern, dev.loc_name) is not None for pattern in record_map[dev_type]['names']]))]
-        elif isinstance(record_map[dev_type]['names'], str) and record_map[dev_type]['names'] != '*':
-            devices = [dev for dev in devices if re.match(record_map[dev_type]['names'], dev.loc_name) is not None]
+        devices = [dev for dev in _get_objects('*.' + dev_type) if _name_in_patterns(dev.loc_name, record_map[dev_type]['names'])]
         try:
             key = record_map[dev_type]['devs_name']
         except:
             key = dev_type
         data[key] = {}
         for var_name in record_map[dev_type]['vars']:
-            data[key][var_name] = get_simulation_variables(res, var_name, vec,
-                                                           interval, dt, app=PF_APP,
-                                                           elements=devices)
+            data[key][var_name] = get_simulation_variables(res, var_name, vec, interval, dt, app=PF_APP, elements=devices)
     res.Release()
     t3 = TIME()
     if vec is not None:
@@ -647,9 +648,11 @@ class TimeVaryingLoad(object):
         TimeVaryingLoad._write(self.meas_filepath, tPQ, verbose)
 
     def clean(self, verbose=False):
-        if verbose: print(f'Deleting measurement file `{self.meas_file.loc_name}`...')
+        if verbose:
+            print(f'Deleting measurement file `{self.meas_file.loc_name}`...')
         self.meas_file.Delete()
-        if verbose: print(f'Deleting composite model `{self.comp_model.loc_name}`...')
+        if verbose:
+            print(f'Deleting composite model `{self.comp_model.loc_name}`...')
         self.comp_model.Delete()
 
 
@@ -758,7 +761,6 @@ def run_tran():
         config['coiref'] = 'element'
 
     project_name = config['project_name']
-    print(project_name)
     
     if outfile is None:
         outfile = '{}_tran.npz'.format(project_name)
@@ -770,7 +772,6 @@ def run_tran():
     PF_db_name = config['db_name'] if 'db_name' in config else 'Terna_Inerzia'
     project_name = '\\' + PF_db_name + '\\' + project_name
     study_case_name = config['study_case_name']
-    print(study_case_name)
     project, study_case = _activate_project(project_name, study_case_name, verbosity_level>0)
     _print_network_info()
     
@@ -797,21 +798,24 @@ def run_tran():
     if 'stoch_loads' in config:
 
         def check_matches(load, patterns, limits, out_of_service):
-            if all([re.match(pattern, load.loc_name) is None for pattern in patterns]) or \
-                load.loc_name in out_of_service:
+            import re
+            name = load.loc_name
+            if all([re.match(p, name) is None for p in patterns]) or name in out_of_service:
                 return False
             p, q = load.plini, load.qlini
-            if (p >= limits['P'][0] and p <= limits['P'][1]) or \
-                (q >= limits['Q'][0] and q <= limits['Q'][1]):
-                   return True
-            return False
+            return (p >= limits['P'][0] and p <= limits['P'][1]) or (q >= limits['Q'][0] and q <= limits['Q'][1])
 
-        loads = list(filter(lambda load: check_matches(load,
-                                                       config['stoch_loads'],
-                                                       config['limits'],
-                                                       config['out_of_service']['ElmLod'] \
-                                                           if 'ElmLod' in config['out_of_service'] else []),
-                            _get_objects('*.ElmLod')))
+        loads = list(
+            filter(
+                lambda load: check_matches(
+                    load,
+                    config['stoch_loads'],
+                    config['limits'],
+                    config['out_of_service'].get('ElmLod', [])
+                ),
+                _get_objects('*.ElmLod')
+            )
+        )
         n_loads = len(loads)
      
         if verbosity_level > 0:
@@ -861,7 +865,6 @@ def run_tran():
         all_elm_files = PF_APP.GetCalcRelevantObjects('*.ElmFile')
         for inp in config['inputs']:
             found = False
-            
             if 'site' in inp and 'substation' in inp:
                 for site in all_sites:
                     if site.loc_name == inp['site']:
@@ -876,14 +879,13 @@ def run_tran():
                                 break
                     if found:
                         break
-            else: #no site definition exists
+            else: # no site definition present
                 comp_models  = PF_APP.GetCalcRelevantObjects('*.ElmComp')
                 for comp_model in comp_models:
                     print(comp_model.loc_name)
                     if comp_model.loc_name == inp['name']:
                         found = True
                         break
-                
             assert found, "Device '{}' not found.".format(inp['name'])
             for elem in comp_model.pelm:
                 if elem in all_elm_files:
@@ -898,8 +900,7 @@ def run_tran():
                             for j in range(n_cols):
                                 fid.write(f' {X[i][j]:.6f}')
                             fid.write('\n')
-                                                    
-        
+
     PF1, PF2 = _apply_configuration(config, verbosity_level)
 
     (
