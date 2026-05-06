@@ -107,7 +107,7 @@ def _name_in_patterns(name, patterns):
     import re
     assert isinstance(patterns, (list, tuple, str)), "'patterns' must be a list, tuple or string"
     if isinstance(patterns, (list, tuple)):
-        return any(match(pattern, name) is not None for pattern in patterns)
+        return any(re.match(pattern, name) is not None for pattern in patterns)
     if patterns == '*':
         return True
     return re.match(patterns, name) is not None
