@@ -3,6 +3,9 @@ import math
 import numpy as np
 
 __all__ = [
+    "RMS",
+    "RMS_from_fourier_coeffs",
+    "RMS_from_complex_fourier_coeffs",
     "shapiro_rudin_phase",
     "newman_phase",
     "compute_crest_factor",
@@ -12,6 +15,22 @@ __all__ = [
     "optimize_phases",
     "compute_fourier_coeffs",
 ]
+
+
+def RMS(x, t=None, dt=1.0):
+    from scipy.integrate import trapezoid
+    if t is None:
+        return np.sqrt(trapezoid(np.abs(x)**2, dx=dt) / (dt * (x.size - 1)))
+    return np.sqrt(trapezoid(np.abs(x)**2, t) / (t[-1] - t[0]))
+
+
+def RMS_from_fourier_coeffs(a, b, a0=0):
+    assert all(np.isreal(a) & np.isreal(b)), 'a and b must be real values'
+    return np.sqrt((a0 / 2) ** 2 + 1 / 2 * (np.sum(a ** 2 + b ** 2)))
+
+
+def RMS_from_complex_fourier_coeffs(coeffs, c0=0):
+    return np.sqrt(c0 ** 2 + np.sum(0.5 * np.abs(coeffs) ** 2))
 
 
 def _rudin_signs(N, x0=[1, 1]):
@@ -67,7 +86,7 @@ def multitone_opt(t, N=None, phases=None, dw=1.0, w0=None, filename=None):
 def compute_crest_factor(u, dt=1.0, dB=0):
     from scipy.integrate import trapezoid
     T = u.size * dt
-    CF = np.max(np.abs(u)) / np.sqrt(trapezoid(np.abs(u)**2, dx=dt) / T)
+    CF = np.max(np.abs(u)) / RMS(u, dt=dt)
     if dB > 0:
         return dB * np.log10(CF)
     return CF
@@ -126,9 +145,9 @@ def optimize_phases(dw, N_tones, N_samples, N_iters, N_reps=1, S0=None):
             CF[j] = compute_crest_factor(M, dt)
         if CF_min is None or CF.min() < CF_min:
             CF_min = CF.min()
-            CF_opt = CF
             S_opt = S
-            m_opt = m[np.argmin(CF)]
+            CF_opt = CF.copy()
+            m_opt = m[np.argmin(CF)].copy()
     M_opt = _compute_M(m_opt, t, dw)
     return np.angle(m_opt), CF_opt, S_opt, t, M_opt
 
@@ -217,7 +236,7 @@ if __name__ == '__main__':
         prefix = '       ' + ' ' * (len(progname) + 1)
         print(f'usage: {progname} [-h | --help] [-o | --outfile <file>] [-f | --force]')
         print(prefix + '[--N-samples <n>] [--N-iters <n>] [--N-reps <n>]')
-        print(prefix + '<-F <base frequency> <-N <number of tones>>')
+        print(prefix + '<-F <base frequency>> <-N <number of tones>>')
         if exit_code is not None:
             sys.exit(exit_code)
 
