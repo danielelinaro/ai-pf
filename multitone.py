@@ -3,15 +3,36 @@ import math
 import numpy as np
 
 __all__ = [
+    "RMS",
+    "RMS_from_fourier_coeffs",
+    "RMS_from_complex_fourier_coeffs",
     "shapiro_rudin_phase",
     "newman_phase",
     "compute_crest_factor",
     "compute_amplitude_distribution",
     "multitone",
-    "multitone_opt",
+    "multitone_boyd",
+    "multitone_friese",
+    "compute_multitone_pars",
     "optimize_phases",
     "compute_fourier_coeffs",
 ]
+
+
+def RMS(x, t=None, dt=1.0):
+    from scipy.integrate import trapezoid
+    if t is None:
+        return np.sqrt(trapezoid(np.abs(x)**2, dx=dt) / (dt * (x.size - 1)))
+    return np.sqrt(trapezoid(np.abs(x)**2, t) / (t[-1] - t[0]))
+
+
+def RMS_from_fourier_coeffs(a, b, a0=0):
+    assert all(np.isreal(a) & np.isreal(b)), 'a and b must be real values'
+    return np.sqrt((a0 / 2) ** 2 + 1 / 2 * (np.sum(a ** 2 + b ** 2)))
+
+
+def RMS_from_complex_fourier_coeffs(coeffs, c0=0):
+    return np.sqrt(c0 ** 2 + np.sum(0.5 * np.abs(coeffs) ** 2))
 
 
 def _rudin_signs(N, x0=[1, 1]):
@@ -35,7 +56,16 @@ def newman_phase(k, N):
     return math.pi * ((k - 1) ** 2) / N
 
 
-def multitone(t, N, method='newman', N0=0, w0=1.0):
+def multitone(t, A, omega, phases):
+    t = np.asarray(t)
+    A = np.asarray(A) + np.zeros_like(omega)
+    x = np.zeros_like(t)
+    for a, w, phi in zip(A, omega, phases):
+        x += a * np.cos(w * t + phi)
+    return x
+
+
+def multitone_boyd(t, N, method='newman', N0=0, w0=1.0):
     if method.lower() in ('newman', 'n'):
         delta_fun = newman_phase
     elif method.lower() in ('shapiro-rudin', 'sr'):
@@ -50,7 +80,7 @@ def multitone(t, N, method='newman', N0=0, w0=1.0):
     return np.sqrt(2 / N) * u
 
 
-def multitone_opt(t, N=None, phases=None, dw=1.0, w0=None, filename=None):
+def multitone_friese(t, N=None, phases=None, dw=1.0, w0=None, filename=None):
     if w0 is None:
         w0 = dw
     if phases is None:
@@ -64,10 +94,33 @@ def multitone_opt(t, N=None, phases=None, dw=1.0, w0=None, filename=None):
     return (M * np.exp(1j * w0 * t)).real
 
 
+def compute_multitone_pars(N, method, w0=None, dw=None, N0=0, phase_method='newman', seed=None):
+    method = method.lower()
+    if method == 'boyd':
+        k = 1 + np.arange(N)
+        A = np.sqrt(2 / N) * np.ones(N)
+        w = (k + N0) * w0
+        phase_method = phase_method.lower()
+        if phase_method in ('newman', 'n'):
+            phi = newman_phase(k, N)
+        elif phase_method in ('shapiro-rudin', 'sr'):
+            phi = shapiro_rudin_phase(k, N)
+        else:
+            raise ValueError("Phase method must be one of 'newman' or 'shapiro-rudin'")
+    elif method == 'friese':
+        if w0 is None:
+            w0 = dw
+        k = np.arange(N)
+        A = np.ones(N)
+        w = w0 + k * dw
+        phi, _, _, _, _ = optimize_phases(dw, N, N_samples=5001, N_iters=2000, N_reps=10, seed=seed)
+    else:
+        raise ValueError("Method must be one of 'boyd' or 'friese'")        
+    return A, w, phi
+
+
 def compute_crest_factor(u, dt=1.0, dB=0):
-    from scipy.integrate import trapezoid
-    T = u.size * dt
-    CF = np.max(np.abs(u)) / np.sqrt(trapezoid(np.abs(u)**2, dx=dt) / T)
+    CF = np.max(np.abs(u)) / RMS(u, dt=dt)
     if dB > 0:
         return dB * np.log10(CF)
     return CF
@@ -100,11 +153,18 @@ def _compute_error(M, S):
     return E
 
 
-def optimize_phases(dw, N_tones, N_samples, N_iters, N_reps=1, S0=None):
+def optimize_phases(dw, N_tones, N_samples, N_iters, N_reps=1, S0=None, seed=None):
+    from numpy.random import RandomState, SeedSequence, MT19937
     from scipy.fft import fft
     from tqdm import tqdm
     if S0 is None:
         S0 = 1.1 * np.sqrt(N_tones)
+    if seed is None:
+        rng = np.random
+    elif isinstance(seed, int):
+        rng = RandomState(MT19937(SeedSequence(seed)))
+    else:
+        rng = seed
     T = 2 * np.pi / dw
     t = np.linspace(0, T, N_samples)
     dt = t[1] - t[0]
@@ -113,7 +173,7 @@ def optimize_phases(dw, N_tones, N_samples, N_iters, N_reps=1, S0=None):
     CF = np.zeros(N_iters)
     CF_min = None
     for i in tqdm(range(N_reps), ascii=True, ncols=60):
-        m[0] = np.exp(1j * np.random.uniform(0, 2 * np.pi, N_tones))
+        m[0] = np.exp(1j * rng.uniform(0, 2 * np.pi, N_tones))
         S[0] = S0
         M = _compute_M(m[0], t, dw)
         CF[0] = compute_crest_factor(M, dt)
@@ -126,9 +186,9 @@ def optimize_phases(dw, N_tones, N_samples, N_iters, N_reps=1, S0=None):
             CF[j] = compute_crest_factor(M, dt)
         if CF_min is None or CF.min() < CF_min:
             CF_min = CF.min()
-            CF_opt = CF
             S_opt = S
-            m_opt = m[np.argmin(CF)]
+            CF_opt = CF.copy()
+            m_opt = m[np.argmin(CF)].copy()
     M_opt = _compute_M(m_opt, t, dw)
     return np.angle(m_opt), CF_opt, S_opt, t, M_opt
 
@@ -217,7 +277,7 @@ if __name__ == '__main__':
         prefix = '       ' + ' ' * (len(progname) + 1)
         print(f'usage: {progname} [-h | --help] [-o | --outfile <file>] [-f | --force]')
         print(prefix + '[--N-samples <n>] [--N-iters <n>] [--N-reps <n>]')
-        print(prefix + '<-F <base frequency> <-N <number of tones>>')
+        print(prefix + '<-F <base frequency>> <-N <number of tones>>')
         if exit_code is not None:
             sys.exit(exit_code)
 

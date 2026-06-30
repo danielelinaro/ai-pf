@@ -77,8 +77,8 @@ if __name__ == '__main__':
     A = np.sqrt(N_tones / 2)
 
     iter_fun = lambda n: tqdm(n, ascii=True, ncols=60)
-    devices_to_consider = 'gen', 'bus'
-    PF_device_names = {'gen': 'ElmSym', 'bus': 'ElmTerm'}
+    devices_to_consider = 'gen', 'bus', 'genstat'
+    PF_device_names = {'gen': 'ElmSym', 'bus': 'ElmTerm', 'genstat': 'ElmGenStat'}
     for infile in data_files:
         print(f'Processing {infile}...')
         outfile = os.path.splitext(infile)[0] + '_fourier_coeffs.npz'
@@ -120,8 +120,7 @@ if __name__ == '__main__':
                     )
                 )
                 vn = var_name.split(':')[1]
-                if vn == 'xspeed':
-                    vn = 'speed'
+                vn = 'speed' if vn == 'xspeed' else vn
                 var_names += ['{}.{}.{}'.format(n, PF_device_names[dev_type], vn) for n in device_names[dev_type]]
         Hsm = blob['Hsm'].item()
         Ssm = blob['Ssm'].item()

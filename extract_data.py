@@ -11,7 +11,7 @@ if __name__ == '__main__':
             sys.exit(0)
         project_name = sys.argv[1]
     else:
-        project_name = '\Terna_Inerzia\V2020_Rete_Sardegna_2021_06_03cr'
+        project_name = '\\Terna_Inerzia\\V2020_Rete_Sardegna_2021_06_03cr'
 
     app = pf.GetApplication()
     if app is None:
@@ -31,7 +31,7 @@ if __name__ == '__main__':
         if typ != 'Site':
             D[typ] = {}
     SMs = app.GetCalcRelevantObjects('*.ElmSym')
-    SGs = app.GetCalcRelevantObjects('*.ElmGenstat')
+    SGs = app.GetCalcRelevantObjects('*.ElmGenStat')
     substations = app.GetCalcRelevantObjects('*.ElmSubstat')
     terminals = app.GetCalcRelevantObjects('*.ElmTerm')
     loads = app.GetCalcRelevantObjects('*.ElmLod')
