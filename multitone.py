@@ -124,6 +124,12 @@ def compute_multitone_pars(N, algorithm, **kwargs):
             - w0 (float): Starting angular frequency (rad/s, default dw).
             - seed (int, optional): Seed for the random number generator
               used to produce reproducible phase values.
+            - N_samples (int, optional, default=1001): number of samples for the
+              optimization of the phases.
+            - N_iters (int, optional, default=1000): number of iterations for the
+              optimization of the phases.
+            - N_reps (int, optional, default=5): how many times to perform the
+              optimization of the phases.
 
     Other Parameters
     ----------------
@@ -176,11 +182,17 @@ def compute_multitone_pars(N, algorithm, **kwargs):
     elif algo == 'friese':
         dw = kwargs['dw']
         w0 = kwargs.get('w0', dw)
-        seed = kwargs.get('seed', None)
         A = np.ones(N)
         k = np.arange(N)
         w = w0 + k * dw
-        phi, _, _, _, _ = optimize_phases(dw, N, N_samples=5001, N_iters=2000, N_reps=10, seed=seed)
+        phi, _, _, _, _ = optimize_phases(
+            dw,
+            N,
+            seed=kwargs.get('seed', None),
+            N_samples=kwargs.get('N_samples', 1001),
+            N_iters=kwargs.get('N_iters', 1000),
+            N_reps=kwargs.get('N_reps', 5),
+        )
     else:
         raise ValueError("Method must be one of 'boyd' or 'friese'")        
     return A, w, phi
@@ -393,7 +405,7 @@ if __name__ == '__main__':
     N_tones = None
     outfile = None
     force = False
-    N_samples = 5001
+    N_samples = 1001
     N_iters = 2000
     N_reps = 10
 
