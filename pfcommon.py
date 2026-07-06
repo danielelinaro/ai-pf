@@ -3,6 +3,7 @@ import os
 import re
 import tables
 import numpy as np
+import ipdb
 
 __all__ = ['BaseParameters', 'terminal_site_name', 'SiteNode', 'LineSitesEdge',
            'get_simulation_variables', 'get_simulation_time', 'get_simulation_dt',
@@ -317,9 +318,17 @@ def correct_traces(xre, xim, delta):
 
 
 def _compute_samples_interval(res, interval, dt):
+    # BEFORE
+    #n_samples = res.GetNumberOfRows()
+    #start = 0 if interval[0] == 0 else int(interval[0] / dt)
+    #stop = n_samples if interval[1] is None else int(np.ceil(interval[1] / dt))
+    
+    # NOW
     n_samples = res.GetNumberOfRows()
-    start = 0 if interval[0] == 0 else int(interval[0] / dt)
-    stop = n_samples if interval[1] is None else int(np.ceil(interval[1] / dt))
+    time = np.array([res.GetValue(r)[1] for r in range(n_samples)])
+    start = 0 if interval[0] is None else int(np.where(time >= interval[0])[0][0])
+    stop = n_samples if interval[1] is None else int(np.where(time <= interval[1])[0][-1] + 1)
+    
     return start,stop
 
 
@@ -338,6 +347,7 @@ def get_simulation_variables(res, var_name, vector, interval=(0,None), dt=None,
     start,stop = _compute_samples_interval(res, interval, dt)
     n_samples = stop - start
     variables = np.zeros((int(np.ceil(n_samples / decimation)), len(elements)))
+    
     for i,element in enumerate(elements):
         col = res.FindColumn(element, var_name)
         if col < 0:

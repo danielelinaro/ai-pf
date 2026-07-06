@@ -17,7 +17,9 @@ from numpy.random import RandomState, SeedSequence, MT19937
 from pfcommon import OU, get_simulation_time, get_simulation_variables, \
     run_power_flow, parse_sparse_matrix_file, parse_Amat_vars_file, \
     parse_Jacobian_vars_file
-
+    
+import ipdb
+import ast
 
 progname = os.path.basename(sys.argv[0])
 
@@ -39,6 +41,73 @@ HVDC_P = {}
 ############################################################
 ###                   UTILITY FUNCTIONS                  ###
 ############################################################
+
+def extract_waveform_params(waveform_str):
+    # Parse the string into an AST node
+    tree = ast.parse(waveform_str.strip())
+    
+    # Lambda function
+    # Structure: [0 if t == 0 else A + B * multitone(t, N, w0=2 * pi * F0), C]
+    lambda_node = tree.body[0].value
+    list_elements = lambda_node.body.elts # The [X, Y] part
+    
+    # 1. Get C (the second element of the list)
+    C = list_elements[1].value
+    
+    # 2. Get the IfExp (0 if t == 0 else ...)
+    if_exp = list_elements[0]
+    t_init = if_exp.test.comparators[0].value
+    A_initial = if_exp.body.value # The '0' in '0 if t == 0'
+    
+    # 3. Get the 'else' part (A + B * multitone...)
+    # This is a BinOp (Addition)
+    else_part = if_exp.orelse
+    A = else_part.left.value
+    
+    # 4. Get B and the multitone call
+    # The right side of the addition is B * multitone(...)
+    multiplication = else_part.right
+    # B might be a calculation (0.01*100/10), so we evaluate just this segment
+    B = eval(compile(ast.Expression(multiplication.left), '', 'eval'))
+    
+    # 5. Get N and F0 from the function call
+    call_node = multiplication.right
+    N = call_node.args[1].value
+    
+    # Search keywords for w0=2 * pi * F0
+    F0 = None
+    for kw in call_node.keywords:
+        if kw.arg == 'w0':
+            # w0 is usually 2 * math.pi * F0. F0 is the last operand.
+            F0 = kw.value.right.value
+            
+    return {
+        "A": A,
+        "B": B,
+        "C": C,
+        "t_init": t_init,
+        "N": N,
+        "F0": F0
+    }
+
+
+def build_waveform(entry):
+    template = entry["waveform"]
+
+    # substitute only keys that appear in the dict
+    keys = {k: v for k, v in entry.items() if k != "waveform"}
+
+    return template.format(**keys)
+
+
+def compute_waveform(t_array, p):
+    res = p['A'] + p['B'] * multitone.multitone(t_array, p['N'], w0=2 * np.pi * p['F0'])
+    
+    # Apply the t_init condition
+    res = np.where(t_array == p['t_init'], p['A'], res)
+    
+    # Return as [Value, C] pairs
+    return np.stack([res, np.full_like(res, p['C'])], axis=1)
 
 
 def _collect_parameters(pars_to_save):
@@ -66,7 +135,7 @@ def _collect_parameters(pars_to_save):
     return pars
 
 
-def _IC(dt, study_case, coiref=0):
+def _IC(dt, fixed_step, study_case, coiref=0):
     ### get the initial condition object
     coirefs = {'element': 0, 'coi': 1, 'center_of_inertia': 1, 'nominal_frequency': 2}
     coiref_values = np.unique(list(coirefs.values()))
@@ -77,8 +146,24 @@ def _IC(dt, study_case, coiref=0):
     inc.iopt_show = 1
     inc.iopt_coiref = 2
     inc.tstart = 0
-    inc.iopt_adapt = 0 # uses a fixed time step...
-    inc.dtgrd = dt    # [s]
+    
+    if fixed_step == 1:        
+        inc.iopt_adapt = 0         # enforces usage of a fixed time step integration scheme
+        inc.dtgrd      = dt        # [s]
+    if fixed_step == 0:       
+        inc.iopt_adapt   = 1       # enforces usage of a fixed time step integration scheme
+        inc.dtgrd        = dt/100  # minimum time step
+        inc.dtgrd_max    = 5e-3    # one of the parameters to act on...
+        inc.iopt_reinc   = 0       # disables re-initialization of algebraic equations at interruption.
+        inc.ipolate      = 1       # stops instant and reinterpolates, then applies user-defined events, if any.
+        inc.iopt_fastcon = 1
+        inc.iopt_fastchk = 1
+        inc.iopt_fastout = 1
+        inc.iopt_fastsol = 0
+        inc.errmax       = 1e-2
+        inc.errinc       = 1e-3
+        
+        
     if isinstance(coiref, str):
         if coiref not in coirefs:
             raise Exception('Accepted values for coiref are ' + ', '.join(coirefs.keys()))
@@ -96,9 +181,9 @@ def _tran(dt, tstop, study_case, elmres):
     ### get the transient simulation object
     sim = study_case.GetContents('*.ComSim', 1)[0]
     print('RMS simulation name:', sim.loc_name)
-    sim.p_resvar = elmres
-    sim.dt = dt
-    sim.tstart = 0.0
+    sim.p_resvar = elmres       # DDG: where is it sued?
+    sim.dt = dt                 # DDG: Is it really used?    
+    sim.tstart = 0.0            # DDG: Is it really used?
     sim.tstop = tstop
     return sim
 
@@ -528,7 +613,19 @@ def _get_data(res, record_map, data_obj, interval=(0,None), dt=None, verbose=Fal
     if verbose:
         sys.stdout.write(f'in memory in {t1 - t0:.0f} sec... ')
         sys.stdout.flush()
-    time = get_simulation_time(res, vec, interval, dt)
+    
+    # BEFORE #
+    #time = get_simulation_time(res, vec, interval, dt)
+    # AFTER #
+    # Get the exact total row count in the res file
+    # Extract the time (this works regardless of the integration time step 
+    # being fixed or variable)
+    n_samples = PF_APP.ResGetValueCount(res, 0)
+    time = np.array([res.GetValue(r)[1] for r in range(n_samples)])
+    start = 0 if interval[0] is None else int(np.where(time >= interval[0])[0][0])
+    stop = n_samples if interval[1] is None else int(np.where(time <= interval[1])[0][-1] + 1)
+    time = time[start:stop]
+    
     t2 = TIME()
     if verbose:
         sys.stdout.write(f'read time in {t2 - t1:.0f} sec... ')
@@ -786,9 +883,9 @@ def run_tran():
         print('Cannot find a grid named `{}`.'.format(config['grid_name']))
         sys.exit(1)
 
-    dt = config['dt']
-    tstop = config['tstop']
-    n_samples = int(np.ceil(tstop / dt)) + 1
+    dt         = config['dt']
+    fixed_step = config['fixed_time_step']
+    tstop      = config['tstop']
 
     rs, seed = _get_random_state(config)
     if verbosity_level > 0:
@@ -850,20 +947,23 @@ def run_tran():
                 P = load.plini, np.abs(load.plini) * config['sigma']['P']
                 Q = load.qlini, np.abs(load.qlini) * config['sigma']['Q']
                 tau = [config['tau']['P'], config['tau']['Q']]
+                n_samples = int(np.ceil(tstop / dt)) + 1                           # DDG: I think we can avoid specifying n_samples
                 tv_load.write_to_file(dt, P, Q, n_samples, tau, verbosity_level>2)
             elif load_type == 'sin':
                 P = load.plini, np.abs(load.plini) * config['sine']['P']
                 Q = load.qlini, np.abs(load.qlini) * config['sine']['Q']
+                n_samples = int(np.ceil(tstop / dt)) + 1                           # DDG: I think we can avoid specifying n_samples
                 tv_load.write_to_file(dt, P, Q, config['sine']['freq'], n_samples, verbosity_level>2)
             if i < n_loads-1:
                 sys.stdout.write('\b' * len(msg))
         sys.stdout.write('\n')
 
     if 'inputs' in config:
-        t = np.r_[0 : tstop + dt/2 : dt]
         all_sites = PF_APP.GetCalcRelevantObjects('*.ElmSite')
+        
         all_elm_files = PF_APP.GetCalcRelevantObjects('*.ElmFile')
         for inp in config['inputs']:
+            use_measurement_file = inp['use_measurement_file']
             found = False
             if 'site' in inp and 'substation' in inp:
                 for site in all_sites:
@@ -887,20 +987,126 @@ def run_tran():
                         found = True
                         break
             assert found, "Device '{}' not found.".format(inp['name'])
+            
             for elem in comp_model.pelm:
-                if elem in all_elm_files:
-                    fun = np.vectorize(eval(inp['waveform']), otypes=[list])
-                    X = fun(t)
-                    n_cols = len(X[0])
-                    print('Writing to file {}...'.format(elem.f_name))
-                    with open(elem.f_name, 'w') as fid:
-                        fid.write('{}\n'.format(n_cols))
-                        for i in range(t.size):
-                            fid.write(f'{t[i]:.6f}')
-                            for j in range(n_cols):
-                                fid.write(f' {X[i][j]:.6f}')
-                            fid.write('\n')
+                # Now the composite model to modify to add a reference power
+                # variation is found. Now there are two options. 
+                
+                # A) Introduce this variation via measurement file.
+                # use_measurement_file = 1
+                # Gotta make sure that the corresponding slot is 
+                # ON, whereas the one that synthetises the same response
+                # through a DSL model is OFF. 
+                # Compatible only with a fixed time step.
+               
+                if fixed_step == 0 and use_measurement_file == 1:
+                    raise ValueError( 
+                        "Invalid configuration: 'use_measurement_file'=1 requires 'fixed_step'=1")
 
+                
+                # B) Introduce this variation via a DSL model. 
+                # use_measurement_file = 0
+                # Gotta make sure that the slot associated with the measurement 
+                # file is OFF, while that of the DSL model is ON. 
+                # Then, the parameters of the DSL model must be updated
+                # according to what is specified in inp['waveform'].
+                # Compatible with both fixed and variable time step.
+                
+                
+                # Pursuing option A)
+                # here I am supposed to go on thorugh the slot names
+                # and make sure that the one of the DSL model is OFF,
+                # while the measurement model is ON. Then, the text
+                # associated with the measurement file must be written
+                # depending on the multitone implementation, dt, and tstop. 
+                if use_measurement_file == 1:
+                    if 'delta_pref_function' in elem.loc_name:
+                        elem.outserv = 1
+  
+                    if elem in all_elm_files:
+                        elem.outserv = 0
+                        t = np.r_[0 : tstop + dt/2 : dt]
+                        fun = eval(inp['waveform'])
+                        X = fun(t)                                              
+                # Actually, X should be made up of two columns, namely the
+                # reference active/reactive power variation. In our case, the 
+                # reference reactive power is always null. The reference
+                # active power may not be null, but it must always be null
+                # at t=0, otherwise simulations do not begin at steady state.
+                        X[t == 0] = 0
+                        X = np.c_[X, np.zeros_like(X)]
+                        n_cols = X.shape[1]
+                        print('Writing to file {}...'.format(elem.f_name))
+                        with open(elem.f_name, 'w') as fid:
+                            fid.write('{}\n'.format(n_cols))
+                            for i in range(t.size):
+                                fid.write(f'{t[i]:.6f}')
+                                for j in range(n_cols):
+                                    fid.write(f' {X[i][j]:.6f}')
+                                fid.write('\n')
+                                
+               
+                # Pursuing option B)
+                # here I am supposed to go on thorugh the slot names
+                # and make sure that the one of the DSL model is ON,
+                # while the measurement model is OFF. Then, depending
+                # on the multitone implementation, the DSL parameters
+                # must be modified accordingly.            
+                elif use_measurement_file == 0:
+                    if elem in all_elm_files:
+                        elem.outserv = 1
+
+                    if 'delta_pref_function' in elem.loc_name:
+                         elem.outserv = 0
+                         
+                         if "multitone.multitone_opt" in inp['waveform']:
+                             use_multitone_opt = 1
+                         elif "multitone.multitone" in inp['waveform']:
+                             use_multitone_opt = 0
+                         else:
+                             raise ValueError( 
+                                 "Unknown function used in 'waveform' field.")
+                         
+                         N     = inp['N']
+                         scale = inp['scale']
+                         Pnom  = inp['Pnom']
+                         f0    = inp['f0']                       
+                         
+                         # The DSL has 50*3 = 150 parameters. For each tone one
+                         # must specify: amplitude, frequency, and phase. 
+                         # These values must be computed depending on the 
+                         # multitone implementation 
+                         if N > len(elem.params)/3:
+                             raise ValueError( 
+                             f"DSL model compatible with {len(elem.params)/3} tones or less.")
+                             
+                         else:
+                             
+                             if use_multitone_opt == 0: 
+                                 amp, omega, phi = multitone.compute_multitone_pars(N, method='boyd', w0=None, dw=2*math.pi*f0, N0=0, phase_method='newman', seed=None)
+                                 amp = amp*scale*Pnom
+                             else:
+                                 amp, omega, phi = multitone.compute_multitone_pars(N, method='friese', w0=None, dw=2*math.pi*f0, N0=0, phase_method=None, seed=None)
+                                 amp = amp*scale*Pnom*math.sqrt(2/N)
+                                                        
+                             freq = omega/(2*math.pi)
+                             ipdb.set_trace()
+                            
+                             params = np.ravel(np.column_stack((amp, freq, phi)))
+                             ipdb.set_trace()
+                             elem.params = params.tolist()
+                            
+                            
+                                
+                             
+                            
+                        
+                        
+                                
+               
+                
+                
+                     
     PF1, PF2 = _apply_configuration(config, verbosity_level)
 
     (
@@ -926,8 +1132,10 @@ def run_tran():
         elmres.Clear()
         elmres.Init()
         _ = _set_vars_to_save(elmres, config['record'], verbose=verbosity_level>1)
-        inc = _IC(dt, study_case, coiref=config['coiref'])
-        sim = _tran(dt, tstop, study_case, elmres)
+        
+        
+        inc = _IC(dt, fixed_step, study_case, coiref=config['coiref'])  
+        #sim = _tran(dt, tstop, study_case, elmres)
         err = inc.Execute()
         assert err == 0, "Cannot compute initial conditions"
         print(f'Successfully computed initial condition (dt = {dt*1e3:.1f} ms).')
@@ -935,17 +1143,24 @@ def run_tran():
             sys.stdout.write('Running simulation until t = {:.1f} sec... '.format(tstop))
             sys.stdout.flush()
         t0 = TIME()
-        err = sim.Execute()
+        #err = sim.Execute() 
+        #sim1 = _tran(dt, tstop-T, study_case, elmres)
+        #err = sim1.Execute() #first part of simulation 
+        sim2 = _tran(dt, tstop, study_case, elmres)
+        err = sim2.Execute() #second part of simulation (last period of multitone)
         t1 = TIME()
         if verbosity_level > 1:
             sys.stdout.write(f'done in {t1 - t0:.0f} sec.\n')
         assert err == 0, "Cannot run transient simulation"
-        
+        #RIPRENDI DA QUI!
         interval = 0, None
-        time, data = _get_data(elmres, config['record'], project, interval, dt, verbosity_level>1)
+        #interval = tstop-T,None
+        
+        time, data = _get_data(elmres, config['record'], project, interval, dt, verbosity_level>1) 
         attributes, device_names, ref_SMs = _get_attributes(config['record'], verbosity_level>1)
         elmres.Clear()
-
+       
+        
         blob = {'config': config,
                 'seed': seed,
                 'inertia': Htot,
@@ -1102,9 +1317,13 @@ def run_AC_analysis():
 
     # get parameters of DSL objects
     pars = _collect_parameters(config.get('parameters_to_save', None))
+    
+    dt         = config['dt']   
+    fixed_step = config['fixed_time_step']
 
-    dt = 1e-3
-    inc = _IC(dt, study_case, coiref=config['coiref'])
+    #BEFORE
+    #inc = _IC(dt, study_case, coiref=config['coiref'])    
+    inc = _IC(dt, fixed_step, study_case, coiref=config['coiref'])
     err = inc.Execute()
     assert err == 0, "Cannot compute initial conditions"
     print(f'Successfully computed initial condition (dt = {dt*1e3:.1f} ms).')
