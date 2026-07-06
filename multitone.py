@@ -10,10 +10,9 @@ __all__ = [
     "newman_phase",
     "compute_crest_factor",
     "compute_amplitude_distribution",
-    "multitone",
-    "multitone_boyd",
-    "multitone_friese",
     "compute_multitone_pars",
+    "multitone_signal",
+    "multitone",
     "optimize_phases",
     "compute_fourier_coeffs",
 ]
@@ -56,7 +55,42 @@ def newman_phase(k, N):
     return math.pi * ((k - 1) ** 2) / N
 
 
-def multitone(t, A, omega, phases):
+def multitone_signal(t, A, omega, phases):
+    """
+    Generate a multi-tone cosine signal.
+
+    The signal is computed as the sum of cosine components:
+
+        x(t) = sum A[i] *cos(omega[i] * t + phases[i])
+
+    where each component is defined by its amplitude, angular frequency,
+    and phase offset.
+
+    Parameters
+    ----------
+    t : float or array_like
+        Time point(s) at which to evaluate the signal.
+    A : float or array_like
+        Amplitudes of the sinusoidal components.
+    omega : array_like
+        Angular frequencies (rad/s) of the sinusoidal components.
+    phases : array_like
+        Phase offsets (rad) of the sinusoidal components.
+
+    Returns
+    -------
+    float or ndarray
+        The value of the multi-tone signal evaluated at `t`. Returns a
+        scalar if `t` is a scalar, or a NumPy array if `t` is array-like.
+
+    Raises
+    ------
+    ValueError
+        If `omega` and `phases` do not have the same length.
+
+    """
+    if omega.size != phases.size:
+        raise ValueError("omega and phases must have the same size")
     t = np.asarray(t)
     A = np.asarray(A) + np.zeros_like(omega)
     x = np.zeros_like(t)
@@ -65,58 +99,132 @@ def multitone(t, A, omega, phases):
     return x
 
 
-def multitone_boyd(t, N, method='newman', N0=0, w0=1.0):
-    if method.lower() in ('newman', 'n'):
-        delta_fun = newman_phase
-    elif method.lower() in ('shapiro-rudin', 'sr'):
-        delta_fun = shapiro_rudin_phase
-    else:
-        raise Exception("Accepted methods are 'Newman' or 'Shapiro-Rudin'")
-    t = np.asarray(t, dtype=float)
-    u = np.zeros_like(t)
-    for k in range(1, N + 1):
-        delta = delta_fun(k, N)
-        u += np.cos((k + N0) * w0 * t + delta)
-    return np.sqrt(2 / N) * u
+def compute_multitone_pars(N, algorithm, **kwargs):
+    """
+    Compute amplitudes, angular frequencies, and phases of a multi-tone cosine
+    signal with N components according to a specified algorithm.
 
+    Parameters
+    ----------
+    N : int
+        Number of cosine components.
+    algorithm : {"boyd", "friese"}
+        Phase-generation algorithm to use.
 
-def multitone_friese(t, N=None, phases=None, dw=1.0, w0=None, filename=None):
-    if w0 is None:
-        w0 = dw
-    if phases is None:
-        if filename is None:
-            assert N is not None
-            phases, _, _, _, _ = optimize_phases(dw, N, N_samples=5001, N_iters=2000, N_reps=10)
-        else:
-            phases = np.load(filename)['phases']
-    m = np.exp(1j * phases)
-    M = _compute_M(m, t, dw)
-    return (M * np.exp(1j * w0 * t)).real
+        - "boyd": Computes the signal parameters using Boyd's method.
+          The following keyword arguments are accepted:
+            - phases (str): Algorithm to be used for computing phases:
+              accepted values are "newman" or "shapiro-rudin" (default "newman")
+            - N0 (int): Reference harmonic index (default 0).
+            - w0 (float): Fundamental angular frequency (rad/s, default 1.0).
 
+        - "friese": Computes the signal parameters using Friese's method.
+          The following keyword arguments are accepted:
+            - dw (float): Frequency spacing between adjacent tones (rad/s).
+            - w0 (float): Starting angular frequency (rad/s, default dw).
+            - seed (int, optional): Seed for the random number generator
+              used to produce reproducible phase values.
 
-def compute_multitone_pars(N, method, w0=None, dw=None, N0=0, phase_method='newman', seed=None):
-    method = method.lower()
-    if method == 'boyd':
+    Other Parameters
+    ----------------
+    **kwargs
+        Algorithm-specific keyword arguments as described above.
+
+    Returns
+    -------
+    A : ndarray
+        Amplitudes of the N cosine components.
+    omega : ndarray
+        Angular frequencies (rad/s) of the N cosine components.
+    phases : ndarray
+        Phase offsets (rad) of the N cosine components.
+
+    Raises
+    ------
+    ValueError
+        If `algorithm` is not one of "boyd" or "friese", or if
+        required keyword arguments are missing or invalid.
+
+    Examples
+    --------
+    Compute parameters using Boyd's method:
+
+    >>> A, omega, phases = compute_multitone_pars(
+    ...     16, "boyd", N0=1, w0=2*np.pi*100
+    ... )
+
+    Compute parameters using Friese's method:
+
+    >>> A, omega, phases = compute_multitone_pars(
+    ...     16, "friese", dw=2*np.pi*10, w0=2*np.pi*100, seed=1234
+    ... )
+    """
+    algo = algorithm.lower()
+    if algo == 'boyd':
+        phases = kwargs.get('phases', 'newman').lower()
+        N0 = kwargs.get('N0', 0)
+        w0 = kwargs.get('w0', 1.0)
         k = 1 + np.arange(N)
         A = np.sqrt(2 / N) * np.ones(N)
         w = (k + N0) * w0
-        phase_method = phase_method.lower()
-        if phase_method in ('newman', 'n'):
+        if phases in ('newman', 'n'):
             phi = newman_phase(k, N)
-        elif phase_method in ('shapiro-rudin', 'sr'):
+        elif phases in ('shapiro-rudin', 'sr'):
             phi = shapiro_rudin_phase(k, N)
         else:
-            raise ValueError("Phase method must be one of 'newman' or 'shapiro-rudin'")
-    elif method == 'friese':
-        if w0 is None:
-            w0 = dw
-        k = np.arange(N)
+            raise ValueError("Phases algorithm must be one of 'newman' or 'shapiro-rudin'")
+    elif algo == 'friese':
+        dw = kwargs['dw']
+        w0 = kwargs.get('w0', dw)
+        seed = kwargs.get('seed', None)
         A = np.ones(N)
+        k = np.arange(N)
         w = w0 + k * dw
         phi, _, _, _, _ = optimize_phases(dw, N, N_samples=5001, N_iters=2000, N_reps=10, seed=seed)
     else:
         raise ValueError("Method must be one of 'boyd' or 'friese'")        
     return A, w, phi
+
+
+def multitone(t, N, algorithm, **kwargs):
+    """
+    Generate a multi-tone cosine signal.
+
+    Parameters
+    ----------
+    t : float or array_like
+        Time point(s) at which to evaluate the signal.
+    N : int
+        Number of cosine components.
+    algorithm : {"boyd", "friese"}
+        Phase-generation algorithm to use.
+
+        - "boyd": Computes the signal parameters using Boyd's method.
+          The following keyword arguments are accepted:
+            - phases (str): Algorithm to be used for computing phases:
+              accepted values are "newman" or "shapiro-rudin" (default "newman")
+            - N0 (int): Reference harmonic index (default 0).
+            - w0 (float): Fundamental angular frequency (rad/s, default 1.0).
+
+        - "friese": Computes the signal parameters using Friese's method.
+          The following keyword arguments are accepted:
+            - dw (float): Frequency spacing between adjacent tones (rad/s).
+            - w0 (float): Starting angular frequency (rad/s, default dw).
+            - seed (int, optional): Seed for the random number generator
+              used to produce reproducible phase values.
+
+    Other Parameters
+    ----------------
+    **kwargs
+        Algorithm-specific keyword arguments as described above.
+
+    Returns
+    -------
+    float or ndarray
+        The value of the multi-tone signal evaluated at `t`. Returns a
+    """
+    A, omega, phases = compute_multitone_pars(N, algorithm, **kwargs)
+    return multitone_signal(t, A, omega, phases)
 
 
 def compute_crest_factor(u, dt=1.0, dB=0):
