@@ -209,9 +209,9 @@ if __name__ == '__main__':
         sys.exit(1)
 
     if use_numpy_inv:
-        from numpy.linalg import inv
+        import numpy.linalg as LA
     else:
-        from scipy.linalg import inv
+        import scipy.linalg as LA
 
     N_freq = int(fmax - fmin) * steps_per_decade + 1
     F = np.logspace(fmin, fmax, N_freq)    
@@ -256,7 +256,7 @@ if __name__ == '__main__':
     print('Shape of Jfy: {}'.format(Jfy.shape))
     print('Shape of Jgx: {}'.format(Jgx.shape))
     print('Shape of Jgy: {}'.format(Jgy.shape))
-    Jgy_inv = inv(Jgy)
+    Jgy_inv = LA.inv(Jgy)
     A = Jfx - Jfy @ Jgy_inv @ Jgx
     assert np.allclose(A, Amat), 'Error in the computation of the matrix A'
     eig, _ = np.linalg.eig(A)
@@ -395,15 +395,13 @@ if __name__ == '__main__':
     I = np.eye(N_state_vars)
     # the transfer functions are complex numbers
     TF = np.zeros((N_freq, N_inputs, N_state_vars + N_algebraic_vars), dtype=complex)
-    # the absolute value of the spectra of the outputs are real numbers:
-    # we will take the abs at the end of the function
     if compute_OUT:
         OUT = np.zeros((N_freq, N_loads, N_state_vars + N_algebraic_vars), dtype=complex)
 
     V = np.zeros((N_algebraic_vars, N_inputs))
     for i in tqdm(range(N_freq), ascii=True, ncols=70):
         M = 1j * 2 * np.pi * F[i] * I - A # sI - A
-        MinvxB = np.dot(inv(M), B)        # (sI - A)^-1 x B
+        MinvxB = LA.solve(M, B) # (sI - A)^-1 x B
         for j, (key, rows) in enumerate(input_rows.items()):
             v = np.zeros(N_algebraic_vars)
             v[rows - N_state_vars] = 1.
