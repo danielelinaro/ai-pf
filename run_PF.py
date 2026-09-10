@@ -22,6 +22,7 @@ import ipdb
 import ast
 
 progname = os.path.basename(sys.argv[0])
+sys.path.append(r"C:\Program Files\DIgSILENT\PowerFactory 2025\Python\3.12")    # otherwise PF app is not found...
 
 
 ############################################################
@@ -147,10 +148,10 @@ def _IC(dt, fixed_step, study_case, coiref=0):
     inc.iopt_coiref = 2
     inc.tstart = 0
     
-    if fixed_step == 1:        
+    if fixed_step:        
         inc.iopt_adapt = 0         # enforces usage of a fixed time step integration scheme
         inc.dtgrd      = dt        # [s]
-    if fixed_step == 0:       
+    else:       
         inc.iopt_adapt   = 1       # enforces usage of a fixed time step integration scheme
         inc.dtgrd        = dt/100  # minimum time step
         inc.dtgrd_max    = 5e-3    # one of the parameters to act on...
@@ -614,13 +615,14 @@ def _get_data(res, record_map, data_obj, interval=(0,None), dt=None, verbose=Fal
         sys.stdout.write(f'in memory in {t1 - t0:.0f} sec... ')
         sys.stdout.flush()
     
+   
     # BEFORE #
     #time = get_simulation_time(res, vec, interval, dt)
     # AFTER #
     # Get the exact total row count in the res file
     # Extract the time (this works regardless of the integration time step 
     # being fixed or variable)
-    n_samples = PF_APP.ResGetValueCount(res, 0)
+    n_samples = PF_APP.ResGetValueCount(res, 0)    
     time = np.array([res.GetValue(r)[1] for r in range(n_samples)])
     start = 0 if interval[0] is None else int(np.where(time >= interval[0])[0][0])
     stop = n_samples if interval[1] is None else int(np.where(time <= interval[1])[0][-1] + 1)
@@ -958,12 +960,12 @@ def run_tran():
                 sys.stdout.write('\b' * len(msg))
         sys.stdout.write('\n')
 
-    if 'inputs' in config:
+    if 'inputs_from_file' in config:
         all_sites = PF_APP.GetCalcRelevantObjects('*.ElmSite')
         
         all_elm_files = PF_APP.GetCalcRelevantObjects('*.ElmFile')
-        for inp in config['inputs']:
-            use_measurement_file = inp['use_measurement_file']
+        for inp in config['inputs_from_file']:
+            #use_measurement_file = inp['use_measurement_file']
             found = False
             if 'site' in inp and 'substation' in inp:
                 for site in all_sites:
@@ -987,7 +989,11 @@ def run_tran():
                         found = True
                         break
             assert found, "Device '{}' not found.".format(inp['name'])
-            
+
+            if not fixed_step:
+                fixed_step = True
+                print("Setting fixed time step because inputs from file are present.")
+
             for elem in comp_model.pelm:
                 # Now the composite model to modify to add a reference power
                 # variation is found. Now there are two options. 
@@ -999,10 +1005,6 @@ def run_tran():
                 # through a DSL model is OFF. 
                 # Compatible only with a fixed time step.
                
-                if fixed_step == 0 and use_measurement_file == 1:
-                    raise ValueError( 
-                        "Invalid configuration: 'use_measurement_file'=1 requires 'fixed_step'=1")
-
                 
                 # B) Introduce this variation via a DSL model. 
                 # use_measurement_file = 0
@@ -1019,93 +1021,102 @@ def run_tran():
                 # while the measurement model is ON. Then, the text
                 # associated with the measurement file must be written
                 # depending on the multitone implementation, dt, and tstop. 
-                if use_measurement_file == 1:
-                    if 'delta_pref_function' in elem.loc_name:
-                        elem.outserv = 1
+                if 'delta_pref_function' in elem.loc_name:
+                    elem.outserv = 1
   
-                    if elem in all_elm_files:
-                        elem.outserv = 0
-                        t = np.r_[0 : tstop + dt/2 : dt]
-                        fun = eval(inp['waveform'])
-                        X = fun(t)                                              
-                # Actually, X should be made up of two columns, namely the
-                # reference active/reactive power variation. In our case, the 
-                # reference reactive power is always null. The reference
-                # active power may not be null, but it must always be null
-                # at t=0, otherwise simulations do not begin at steady state.
-                        X[t == 0] = 0
-                        X = np.c_[X, np.zeros_like(X)]
-                        n_cols = X.shape[1]
-                        print('Writing to file {}...'.format(elem.f_name))
-                        with open(elem.f_name, 'w') as fid:
-                            fid.write('{}\n'.format(n_cols))
-                            for i in range(t.size):
-                                fid.write(f'{t[i]:.6f}')
-                                for j in range(n_cols):
-                                    fid.write(f' {X[i][j]:.6f}')
-                                fid.write('\n')
+                if elem in all_elm_files:
+                    elem.outserv = 0
+                    t = np.r_[0 : tstop + dt/2 : dt]
+                    fun = eval(inp['waveform'])
+                    X = fun(t)
+                    # Actually, X should be made up of two columns, namely the
+                    # reference active/reactive power variation. In our case, the 
+                    # reference reactive power is always null. The reference
+                    # active power may not be null, but it must always be null
+                    # at t=0, otherwise simulations do not begin at steady state.
+                    X[t == 0] = 0
+                    X = np.c_[X, np.zeros_like(X)]
+                    n_cols = X.shape[1]
+                    print('Writing to file {}...'.format(elem.f_name))
+                    with open(elem.f_name, 'w') as fid:
+                        fid.write('{}\n'.format(n_cols))
+                        for i in range(t.size):
+                            fid.write(f'{t[i]:.6f}')
+                            for j in range(n_cols):
+                                fid.write(f' {X[i][j]:.6f}')
+                            fid.write('\n')
                                 
                
-                # Pursuing option B)
-                # here I am supposed to go on thorugh the slot names
-                # and make sure that the one of the DSL model is ON,
-                # while the measurement model is OFF. Then, depending
-                # on the multitone implementation, the DSL parameters
-                # must be modified accordingly.            
-                elif use_measurement_file == 0:
-                    if elem in all_elm_files:
-                        elem.outserv = 1
-
-                    if 'delta_pref_function' in elem.loc_name:
-                         elem.outserv = 0
+    if 'inputs_from_DSL' in config:
+        all_sites = PF_APP.GetCalcRelevantObjects('*.ElmSite')
+        
+        for inp in config['inputs_from_DSL']:
+            found = False
+            if 'site' in inp and 'substation' in inp:
+                for site in all_sites:
+                    if site.loc_name == inp['site']:
+                        for substation in site.GetContents():
+                            if substation.loc_name == inp['substation']:
+                                for comp_model in substation.GetContents():
+                                    print(comp_model.loc_name)
+                                    if comp_model.loc_name == inp['name']:
+                                        found = True
+                                        break
+                            if found:
+                                break
+                    if found:
+                        break
+            else: # no site definition present
+                comp_models  = PF_APP.GetCalcRelevantObjects('*.ElmComp')
+                for comp_model in comp_models:
+                    print(comp_model.loc_name)
+                    if comp_model.loc_name == inp['name']:
+                        found = True
+                        break
+            assert found, "Device '{}' not found.".format(inp['name'])
+        # Pursuing option B)
+        # here I am supposed to go on thorugh the slot names
+        # and make sure that the one of the DSL model is ON,
+        # while the measurement model is OFF. Then, depending
+        # on the multitone implementation, the DSL parameters
+        # must be modified accordingly.    
+        
+        for elem in comp_model.pelm:        
+            if 'Meas_file' in elem.loc_name:
+                elem.outserv = 1
+    
+            if 'delta_pref_function' in elem.loc_name:
+                 elem.outserv = 0
+                    
+                 N     = inp['N']
+                 scale = inp['scale']
+                 Pnom  = inp['Pnom']
+                 f0    = inp['f0'] 
+                 seed  = inp['seed']      
+                 algorithm = inp['algorithm']                
+                 
+                 # The DSL has 50*3 = 150 parameters. For each tone one
+                 # must specify: amplitude, frequency, and phase. 
+                 # These values must be computed depending on the 
+                 # multitone implementation 
+                 if N > len(elem.params)/3:
+                     raise ValueError( 
+                     f"DSL model compatible with {len(elem.params)/3} tones or less.")              
+                 else:   
+                     if algorithm == 'boyd':
+                         amp, omega, phi = multitone.compute_multitone_pars(N, algorithm, w0=2*math.pi*f0, N0=0, phases='newman')
+                         amp = amp*scale*Pnom
+                     elif algorithm == 'friese':
+                         amp, omega, phi = multitone.compute_multitone_pars(N, algorithm, dw=2*math.pi*f0, seed=seed)
+                         amp = amp*scale*Pnom*math.sqrt(2/N)
+                     else:
+                         raise ValueError("Algorithm not yet implemented.")
                          
-                         if "multitone.multitone_opt" in inp['waveform']:
-                             use_multitone_opt = 1
-                         elif "multitone.multitone" in inp['waveform']:
-                             use_multitone_opt = 0
-                         else:
-                             raise ValueError( 
-                                 "Unknown function used in 'waveform' field.")
-                         
-                         N     = inp['N']
-                         scale = inp['scale']
-                         Pnom  = inp['Pnom']
-                         f0    = inp['f0']                       
-                         
-                         # The DSL has 50*3 = 150 parameters. For each tone one
-                         # must specify: amplitude, frequency, and phase. 
-                         # These values must be computed depending on the 
-                         # multitone implementation 
-                         if N > len(elem.params)/3:
-                             raise ValueError( 
-                             f"DSL model compatible with {len(elem.params)/3} tones or less.")
-                             
-                         else:
-                             
-                             if use_multitone_opt == 0: 
-                                 amp, omega, phi = multitone.compute_multitone_pars(N, method='boyd', w0=None, dw=2*math.pi*f0, N0=0, phase_method='newman', seed=None)
-                                 amp = amp*scale*Pnom
-                             else:
-                                 amp, omega, phi = multitone.compute_multitone_pars(N, method='friese', w0=None, dw=2*math.pi*f0, N0=0, phase_method=None, seed=None)
-                                 amp = amp*scale*Pnom*math.sqrt(2/N)
-                                                        
-                             freq = omega/(2*math.pi)
-                             ipdb.set_trace()
-                            
-                             params = np.ravel(np.column_stack((amp, freq, phi)))
-                             ipdb.set_trace()
-                             elem.params = params.tolist()
-                            
-                            
-                                
-                             
-                            
-                        
-                        
-                                
-               
-                
-                
+                                                
+                     freq = omega/(2*math.pi)
+                    
+                     params = np.ravel(np.column_stack((amp, freq, phi)))
+                     elem.params = params.tolist()            
                      
     PF1, PF2 = _apply_configuration(config, verbosity_level)
 
@@ -1179,6 +1190,14 @@ def run_tran():
                 'attributes': attributes,
                 'device_names': device_names,
                 'ref_SMs': ref_SMs}
+        try: 
+            blob['multitone_pars'] = {
+                'A': amp,
+                'w': omega,
+                'phi': phi}
+        except:
+            pass
+        
 
         if time_varying_loads is not None:
             if load_type == 'stoch':
