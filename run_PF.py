@@ -1110,11 +1110,9 @@ def run_tran():
                          amp, omega, phi = multitone.compute_multitone_pars(N, algorithm, dw=2*math.pi*f0, seed=seed)
                          amp = amp*scale*Pnom*math.sqrt(2/N)
                      else:
-                         raise ValueError("Algorithm not yet implemented.")
-                         
-                                                
+                         raise NotImplementedError("Algorithm not yet implemented.")
+
                      freq = omega/(2*math.pi)
-                    
                      params = np.ravel(np.column_stack((amp, freq, phi)))
                      elem.params = params.tolist()            
                      

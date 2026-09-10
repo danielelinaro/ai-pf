@@ -3,7 +3,7 @@ import os
 import sys
 import numpy as np
 from tqdm import tqdm
-from multitone import compute_fourier_coeffs, newman_phase
+from multitone import compute_fourier_coeffs, compute_multitone_pars
 
 progname = os.path.basename(sys.argv[0])
 
@@ -73,8 +73,6 @@ if __name__ == '__main__':
 
     T0 = 1.0 / f0
     freqs = np.array([(i + 1) * f0 for i in range(N_tones)])
-    phases = newman_phase(np.arange(N_tones) + 1, N_tones)
-    A = np.sqrt(N_tones / 2)
 
     iter_fun = lambda n: tqdm(n, ascii=True, ncols=60)
     devices_to_consider = 'gen', 'bus', 'genstat'
@@ -87,6 +85,19 @@ if __name__ == '__main__':
             continue
         blob = np.load(infile, allow_pickle=True)
         device_names = blob['device_names'].item()
+
+        config = blob['config'].item()
+        assert len(config['inputs_from_DSL']) == 1, "There are multiple inputs..."
+        algo = config['inputs_from_DSL'][0]['algorithm']
+        if algo == 'friese':
+            w0 = dw = 2 * np.pi * f0
+            seed = config['inputs_from_DSL'][0]['seed']
+            A, _, phases = compute_multitone_pars(N_tones, algo, dw=dw, w0=w0, seed=seed)
+        elif algo == 'boyd':
+            A, _, phases = compute_multitone_pars(N_tones, algo, phases='newman', dw=2 * np.pi * f0)
+        else:
+            raise Exception(f"Unknown crest shaping algorithm '{algo}'")
+
         data = blob['data'].item()
         time = blob['time'].astype(float)
         N_samples = time.size
@@ -139,8 +150,13 @@ if __name__ == '__main__':
             'F': freqs,
             'TF': np.hstack(coeffs)[:, np.newaxis, :],
             'var_names': var_names,
-            'input_names': [inp['name'] for inp in config['inputs']],
         }
+        for key in ('inputs', 'inputs_from_DSL'):
+            if key in config:
+                out['input_names'] = [inp['name'] for inp in config[key]]
+                break
+        if 'input_names' not in out:
+            print('Could not figure out the input names.')
         np.savez_compressed(outfile, **out)
         if save_mat:
             from pathlib import Path
