@@ -16,13 +16,14 @@ from numpy.random import RandomState, SeedSequence, MT19937
 
 from pfcommon import OU, get_simulation_time, get_simulation_variables, \
     run_power_flow, parse_sparse_matrix_file, parse_Amat_vars_file, \
-    parse_Jacobian_vars_file
+    parse_Jacobian_vars_file, OU_signal
     
 import ipdb
 import ast
 
 progname = os.path.basename(sys.argv[0])
-sys.path.append(r"C:\Program Files\DIgSILENT\PowerFactory 2025\Python\3.12")    # otherwise PF app is not found...
+#sys.path.append(r"C:\Program Files\DIgSILENT\PowerFactory 2025\Python\3.12")    # otherwise PF app is not found...
+sys.path.append(r"C:\Program Files\DIgSILENT\PowerFactory 2026 SP2\Python\3.12")    # otherwise PF app is not found...
 
 
 ############################################################
@@ -247,6 +248,22 @@ def _find_in_contents(container, obj_name):
 
 def _activate_project(project_name, study_case_name=None, verbose=False):   
     ### Activate the project
+    print(project_name)
+    
+    #user = PF_APP.GetCurrentUser()
+    # Fetch all project objects (*.IntPrj) recursively (flag = 1)
+    #projects = user.GetContents('*.IntPrj', 1)
+    
+    # if not projects:
+    #     print("No projects found.")
+    #     return
+        
+    # for i, p in enumerate(projects, 1):
+    #     # p.GetFullName() gives the exact database path required by ActivateProject
+    #     print(f"{i}. Name: {p.loc_name}")
+    #     print(f"   Full Path: {p.GetFullName()}")
+    #     print("-" * 40)
+    
     err = PF_APP.ActivateProject(project_name)
     if err:
         raise Exception(f'Cannot activate project "{project_name}".')
@@ -614,15 +631,19 @@ def _get_data(res, record_map, data_obj, interval=(0,None), dt=None, verbose=Fal
     if verbose:
         sys.stdout.write(f'in memory in {t1 - t0:.0f} sec... ')
         sys.stdout.flush()
-    
-   
+
     # BEFORE #
     #time = get_simulation_time(res, vec, interval, dt)
     # AFTER #
     # Get the exact total row count in the res file
     # Extract the time (this works regardless of the integration time step 
     # being fixed or variable)
-    n_samples = PF_APP.ResGetValueCount(res, 0)    
+    n_samples = PF_APP.ResGetValueCount(res, 0)     # Deprecated in newer PF verisons
+    #n_samples  = res.GetNumberOfRows()
+    
+    if n_samples == 0:
+       ipdb.set_trace()
+    
     time = np.array([res.GetValue(r)[1] for r in range(n_samples)])
     start = 0 if interval[0] is None else int(np.where(time >= interval[0])[0][0])
     stop = n_samples if interval[1] is None else int(np.where(time <= interval[1])[0][-1] + 1)
@@ -808,7 +829,6 @@ class OULoad(TimeVaryingLoad):
 
 
 def run_tran():
-    
     def usage(exit_code=None):
         print(f'usage: {progname} tran [-f | --force] [-o | --outfile <filename>]')
         print( '       ' + ' ' * len(progname) + '      [-v | --verbose <level>] [-m | --email] config_file')
@@ -819,7 +839,7 @@ def run_tran():
     outfile = None
     verbosity_level = 1
     send_email = False
-
+    
     i = 2
     n_args = len(sys.argv)
     while i < n_args:
@@ -842,7 +862,7 @@ def run_tran():
         else:
             break
         i += 1
-    
+        
     if i == n_args:
         print('You must specify a configuration file')
         sys.exit(1)
@@ -851,7 +871,7 @@ def run_tran():
     else:
         print('Arguments after configuration file name are not allowed')
         sys.exit(1)
-
+        
     if not os.path.isfile(config_file):
         print('{}: {}: no such file.'.format(progname, config_file))
         sys.exit(1)
@@ -860,20 +880,24 @@ def run_tran():
         config['coiref'] = 'element'
 
     project_name = config['project_name']
-    
+
     if outfile is None:
         outfile = '{}_tran.npz'.format(project_name)
 
     if os.path.isfile(outfile) and not force:
         print(f'{progname}: output file `{outfile}` exists: use -f to overwrite.')
         sys.exit(1)
+    
 
     PF_db_name = config['db_name'] if 'db_name' in config else 'Terna_Inerzia'
-    project_name = '\\' + PF_db_name + '\\' + project_name
+    #project_name = '\\' + PF_db_name + '\\' + project_name
+    project_name = rf"\{PF_db_name}\{config['project_name']}"
+    
     study_case_name = config['study_case_name']
     project, study_case = _activate_project(project_name, study_case_name, verbosity_level>0)
     _print_network_info()
     
+
     found = False
     for grid in PF_APP.GetCalcRelevantObjects('*.ElmNet'):
         if grid.loc_name == config['grid_name']:
@@ -1029,13 +1053,14 @@ def run_tran():
                     t = np.r_[0 : tstop + dt/2 : dt]
                     fun = eval(inp['waveform'])
                     X = fun(t)
+                    
                     # Actually, X should be made up of two columns, namely the
                     # reference active/reactive power variation. In our case, the 
                     # reference reactive power is always null. The reference
                     # active power may not be null, but it must always be null
                     # at t=0, otherwise simulations do not begin at steady state.
-                    X[t == 0] = 0
-                    X = np.c_[X, np.zeros_like(X)]
+                    #X[t == 0] = 0
+                    #X = np.c_[X, np.zeros_like(X)]
                     n_cols = X.shape[1]
                     print('Writing to file {}...'.format(elem.f_name))
                     with open(elem.f_name, 'w') as fid:
@@ -1143,8 +1168,6 @@ def run_tran():
         elmres.Clear()
         elmres.Init()
         _ = _set_vars_to_save(elmres, config['record'], verbose=verbosity_level>1)
-        
-        
         inc = _IC(dt, fixed_step, study_case, coiref=config['coiref'])  
         #sim = _tran(dt, tstop, study_case, elmres)
         err = inc.Execute()
@@ -1171,6 +1194,7 @@ def run_tran():
         attributes, device_names, ref_SMs = _get_attributes(config['record'], verbosity_level>1)
         elmres.Clear()
        
+
         
         blob = {'config': config,
                 'seed': seed,
@@ -1190,6 +1214,7 @@ def run_tran():
                 'attributes': attributes,
                 'device_names': device_names,
                 'ref_SMs': ref_SMs}
+
         try: 
             blob['multitone_pars'] = {
                 'A': amp,
@@ -1211,7 +1236,8 @@ def run_tran():
                 blob.update({'sin_load_names': [ld.load.loc_name for ld in time_varying_loads],
                     'sin_load_P': [ld.load.plini for ld in time_varying_loads],
                     'sin_load_Q': [ld.load.qlini for ld in time_varying_loads]})
-
+                
+        
         np.savez_compressed(outfile, **blob)
 
     except Exception as inst:
@@ -1690,6 +1716,7 @@ def run_load_step_sim():
         print(f'{progname}: output file `{outfile}` exists: use -f to overwrite.')
         sys.exit(1)
 
+
     PF_db_name = config['db_name'] if 'db_name' in config else 'Terna_Inerzia'
     project_name = '\\' + PF_db_name + '\\' + config['project_name']
     project = _activate_project(project_name, verbosity_level>0)
@@ -1785,6 +1812,8 @@ if __name__ == '__main__':
     import powerfactory as pf
     global PF_APP
     PF_APP = pf.GetApplication()
+    
+    
     if PF_APP is None:
         print('\nCannot get PowerFactory application.')
         sys.exit(1)

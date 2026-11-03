@@ -2,6 +2,7 @@
 import math
 import numpy as np
 
+
 __all__ = [
     "RMS",
     "RMS_from_fourier_coeffs",
@@ -96,6 +97,11 @@ def multitone_signal(t, A, omega, phases):
     x = np.zeros_like(t)
     for a, w, phi in zip(A, omega, phases):
         x += a * np.cos(w * t + phi)
+    
+
+    # Added by DDG.
+    # It is necessary to enforce null value at t=0 to prevent initialization errors
+    x = np.where(t == 0, 0.0, x)
     return x
 
 
