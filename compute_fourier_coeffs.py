@@ -8,15 +8,58 @@ from multitone import compute_fourier_coeffs, compute_multitone_pars
 
 progname = os.path.basename(sys.argv[0])
 
+HELP_MESSAGE = """\
+usage: {} [-h | --help] [--f0 <freq>] [--N-tones <num>] [--variable-timestep] [--dt <val>]
+       {} [--N-periods <num>] [--tran <num[T]>] [-f | --force] [--save-mat] data_file(s)
+
+Compute the Fourier coefficients of one or more time-domain data files.
+
+positional arguments:
+  data_file(s)          One or more files containing the time-domain data to
+                        analyze. Each file is processed independently.
+
+options:
+  -h, --help            Print this help message and exit.
+
+  --f0 <freq>           Fundamental frequency of the signal, in Hz.
+
+  --N-tones <num>       Number of tones (harmonics of f0) to compute.
+
+  --variable-timestep   Indicate that the data was sampled with a non-uniform
+                        time step. No interpolation is performed
+
+  --dt <val>            Time step, in seconds, of the uniform grid used for
+                        resampling. Only meaningful when --variable-timestep
+                        is not specified. If not passed it is inferred from
+                        the data file.
+
+  --N-periods <num>     Number of periods of the fundamental to include in
+                        the analysis, counted from the end of the data.
+                        [default: 1]
+
+  --tran <num[T]>       Initial transient to discard before analysis. A plain
+                        number is interpreted as seconds; a number followed by
+                        'T' is interpreted as periods of the fundamental
+                        (e.g. --tran 5T discards the first 5 periods).
+
+  -f, --force           Overwrite existing output files without prompting.
+
+  --save-mat            In addition to the default output, save the computed
+                        coefficients to a MATLAB-compatible .mat file.
+
+examples:
+  python {} --dt 0.005 --N-tones 50 --f0 0.01 --N-periods 4 file.npz
+  python {} --dt 0.005 --N-tones 50 --f0 0.01 --tran 1T file1.npz file2.npz
+""".format(progname, ' ' * len(progname), progname, progname, progname)
+
 def usage(exit_code=None):
-    prefix = '       ' + ' ' * (len(progname) + 1)
-    print(f'usage: {progname} [-h | --help] [--f0 <freq>] [--N-tones <num>] [--variable-timestep]')
-    print(prefix + '[--N-periods <num>] [--tran <num[T]>] [-f | --force] [--save-mat] data_file(s)')
+    print(HELP_MESSAGE)
     if exit_code is not None:
         sys.exit(exit_code)
         
 if __name__ == '__main__':
 
+    timestep = None
     f0 = None
     N_tones = None
     N_periods_to_analyze = None
@@ -31,6 +74,12 @@ if __name__ == '__main__':
         arg = sys.argv[i]
         if arg in ('-h', '--help'):
             usage(0)
+        elif arg == '--dt':
+            i += 1
+            timestep = float(sys.argv[i])
+            if timestep <= 0:
+                print(f'{progname}: time step must be > 0.')
+                sys.exit(0)
         elif arg == '--variable-timestep':
             fixed_timestep = False
         elif arg == '--f0':
@@ -84,11 +133,16 @@ if __name__ == '__main__':
         print(f'{progname}: you must specify at least one input file')
         sys.exit(1)
 
-    data_files = sys.argv[i:]
+
+    if timestep is not None and not fixed_timestep:
+        print(f'{progname}: you cannot pass both --dt and --variable-timestep.')
+        sys.exit(1)
 
     if f0 is None or N_tones is None:
         print(f'{progname}: you must specify both f0 and N_tones.')
         sys.exit(1)
+
+    data_files = sys.argv[i:]
 
     if N_periods_to_analyze is None and transient_to_skip is None:
         N_periods_to_analyze = 1
@@ -142,10 +196,14 @@ if __name__ == '__main__':
         time = blob['time'].astype(float)
         dt, counts = np.unique(np.diff(time), return_counts=True)
         dt = dt[np.argmax(counts)]
-        assert dt > 1e-6, 'Timestep is too small'
+        if timestep is not None:
+            assert abs(timestep - dt) / timestep < 1e-6, 'Timestep in file does not match the one pased'
+            dt = timestep
+        else:
+            assert dt > 1e-6, 'Timestep is too small'
         if fixed_timestep:
             samples_per_period = int(np.round(T0 / dt))
-            assert abs(T0 - samples_per_period * dt) / T0 < 1e-6, 'Problems with computing timestep'
+            assert abs(T0 - samples_per_period * dt) / T0 < 1e-6, 'Problems with timestep'
         print(f'Timestep: {dt:g} s.')
         while True:
             if time.size > 1 and time[-1] - time[-2] < dt / 10:
