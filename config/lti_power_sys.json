@@ -1,0 +1,26 @@
+{
+    "data_dir": "data/Sardinia/SM_configs_from_data/multiple_GFM_stoch_loads/GFM_01/001/Ta_4",
+    "inputs": [
+	{
+	    "site": "OTTCTI",
+	    "substation": "OTTCTI2201________SUBNET__",
+	    "dev_name": "GFM_01",
+	    "dsl_name": "pref_buffer_01",
+	    "var_name": "pref_out",
+	    "waveform": "lambda t: 0.0004 * 100 * math.sqrt(2 / 50) * multitone.multitone(t, N=50, algorithm='friese', w0=2 * math.pi * 0.01, dw=2 * math.pi * 0.01, seed=100)"
+	},
+	{
+	    "site": "MIMC_I",
+	    "substation": "MIMC_I2201________SUBNET__",
+	    "dsl_name": "BUF_MIMC_I2201TR1",
+	    "var_name": "Pext",
+	    "waveform": "lambda t: OU(t[1] - t[0], 0, 2, 20e-3, len(t))"
+	}
+    ],
+    "vars_to_save": {
+	".*I1501A1.*\\.ElmTerm$": ["ur", "ui"],
+	".*\\.ElmSym$": ["speed"]
+    },
+    "tend": 450,
+    "dt": 5e-3
+}

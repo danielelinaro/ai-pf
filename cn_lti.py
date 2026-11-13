@@ -84,7 +84,6 @@ def crank_nicolson_lti(A, B, u, x0, t0, tf, n_steps, C=None, D=None):
             D = D.reshape(l, 1)
         if D.shape[0] != l:
             raise ValueError("D must have the same number of rows as C")
-        CT, DT = C.T, D.T
     else:
         l = 0
 
@@ -120,11 +119,9 @@ def crank_nicolson_lti(A, B, u, x0, t0, tf, n_steps, C=None, D=None):
     for k in range(n_steps):
         np.dot(P, xy[k, :n], out=xy[k + 1, :n])
         xy[k + 1, :n] += Q @ S[k]
-        if l > 0:
-            xy[k, n:] = xy[k : k + 1, :n] @ CT + U[k : k + 1] @ DT
+    # Compute the algebraic part of the system
     if l > 0:
-        xy[n_steps, n:] = xy[n_steps:, :n] @ CT + U[n_steps:] @ DT
-    
+        xy[:, n:] = xy[:, :n] @ C.T + U @ D.T
     return t, xy
 
 
