@@ -3,7 +3,8 @@ import os
 import re
 import tables
 import numpy as np
-import ipdb
+from numpy.random import RandomState, SeedSequence, MT19937
+
 
 __all__ = ['BaseParameters', 'terminal_site_name', 'SiteNode', 'LineSitesEdge',
            'get_simulation_variables', 'get_simulation_time', 'get_simulation_dt',
@@ -389,6 +390,9 @@ def normalize(x):
     return (x - xm) / xs
 
 
+_random_state_from_seed = lambda seed: RandomState(MT19937(SeedSequence(seed)))
+
+
 def OU(dt, mean, stddev, tau, N, random_state = None):
     """
     OU returns a realization of the Ornstein-Uhlenbeck process given its
@@ -406,8 +410,9 @@ def OU(dt, mean, stddev, tau, N, random_state = None):
         Time constant of the autocorrelation function of the process.
     N : integer
         Number of samples.
-    random_state : RandomState object, optional
-        The object used to draw the random numbers. The default is None.
+    random_state : int or RandomState object, optional
+        Either the seed used to build a RandomState object or a RandomState object
+        used to generate random numbers. The default is None.
 
     Returns
     -------
@@ -415,11 +420,11 @@ def OU(dt, mean, stddev, tau, N, random_state = None):
         A realization of the Ornstein-Uhlenbeck process with the above parameters.
 
     """
-    const = 2 * stddev**2 / tau
     mu = np.exp(-dt / tau)
-    coeff = np.sqrt(const * tau / 2 * (1 - mu**2))
+    coeff = stddev * np.sqrt(1 - mu**2)
     if random_state is not None:
-        rnd = random_state.normal(size=N)
+        rs = _random_state_from_seed(random_state) if isinstance(random_state, int) else random_state
+        rnd = rs.normal(size=N)
     else:
         rnd = np.random.normal(size=N)
     ou = np.zeros(N)
@@ -474,8 +479,9 @@ def OU_2(dt, alpha, mu, c, N, random_state = None):
         Together with alpha, sets the variance of the process (which is equal to c**2 / (2 * alpha)).
     N : integer
         Number of samples.
-    random_state : RandomState object, optional
-        The object used to draw the random numbers. The default is None.
+    random_state : int or RandomState object, optional
+        Either the seed used to build a RandomState object or a RandomState object
+        used to generate random numbers. The default is None.
 
     Returns
     -------
@@ -485,7 +491,8 @@ def OU_2(dt, alpha, mu, c, N, random_state = None):
     """
     coeff = np.array([alpha * mu * dt, 1 / (1 + alpha * dt)])
     if random_state is not None:
-        rnd = c * np.sqrt(dt) * random_state.normal(size=N)
+        rs = _random_state_from_seed(random_state) if isinstance(random_state, int) else random_state
+        rnd = c * np.sqrt(dt) * rs.normal(size=N)
     else:
         rnd = c * np.sqrt(dt) * np.random.normal(size=N)
     ou = np.zeros(N)
