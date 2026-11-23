@@ -12,6 +12,7 @@ import json
 import numpy as np
 from tqdm import tqdm
 from pathlib import Path
+import warnings
 
 progname = os.path.basename(sys.argv[0])
 
@@ -25,7 +26,7 @@ def usage(exit_code=None):
     print(prefix + '<-L | --loads load1<,load2,...> | filename>')
     print(prefix + '<-I | --inputs filename>')
     print(prefix + '<-V | --vars-to-save var1<,var2,...> | filename>')
-    print(prefix + '[--save-mat] [-v | --verbose] [-G | --grid-name <name>] AC_data_file')
+    print(prefix + '[--save-mat] [--no-matrixes] [-v | --verbose] [-G | --grid-name <name>] AC_data_file')
     print('')
     print("For Sardinia, use '--ref-sm CODCTI0201GGR1____GEN_____' or '--ref-sm Sardinia'.")
     if exit_code is not None:
@@ -47,6 +48,7 @@ if __name__ == '__main__':
     dP = []
     sigmaP = []
     compute_OUT = False
+    save_matrixes = True
     # time constant of the OU process
     tau = 20e-3
     F0 = 50.
@@ -141,6 +143,8 @@ if __name__ == '__main__':
                 save_mat = True
             except:
                 raise Warning('scipy not available: will not save MAT file')
+        elif arg == '--no-matrixes':
+            save_matrixes = False
         elif arg == '--S-base':
             i += 1
             S_base = float(sys.argv[i])
@@ -401,7 +405,8 @@ if __name__ == '__main__':
     V = np.zeros((N_algebraic_vars, N_inputs))
     for i in tqdm(range(N_freq), ascii=True, ncols=70):
         M = 1j * 2 * np.pi * F[i] * I - A # sI - A
-        MinvxB = LA.solve(M, B) # (sI - A)^-1 x B
+        with warnings.catch_warnings(action='ignore'):
+            MinvxB = LA.solve(M, B) # (sI - A)^-1 x B
         for j, (key, rows) in enumerate(input_rows.items()):
             v = np.zeros(N_algebraic_vars)
             v[rows - N_state_vars] = 1.
@@ -542,16 +547,46 @@ if __name__ == '__main__':
     Htot_SM = data['inertia']
     Etot_SM = data['energy']
     Mtot_SM = data['momentum']
-    out = {'A': A, 'B': B, 'C': C, 'D': D, 'V': V, 'J': J, 'F': F, 'TF': TF,
-           'var_names': var_names, 'SM_names': SM_names,
-           'static_gen_names': static_gen_names, 'bus_names': bus_names,
-           'input_loads': input_loads, 'input_names': list(input_rows),
-           'Htot_SM': Htot_SM, 'Etot_SM': Etot_SM, 'Mtot_SM': Mtot_SM,
-           'H_SM': H_SM, 'S_SM': S_SM, 'P_SM': P_SM, 'Q_SM': Q_SM,
-           'PF': data['PF_without_slack'], 'bus_equiv_terms': data['bus_equiv_terms'],
-           'mu': mu, 'c': c, 'alpha': alpha, 'dP': dP, 'sigmaP': sigmaP, 'ref_SM_name': ref_SM_name,
-           'data_file': data_file, 'with_additional_TFs': compute_additional_TFs,
-           'vars_idx': vars_idx}
+    if save_matrixes:
+        out = {
+            'A': A,
+            'B': B,
+            'C': C,
+            'D': D,
+            'V': V,
+            'J': J,
+        }
+    else:
+        out = {}
+
+    out |= {
+        'F': F,
+        'TF': TF,
+        'var_names': var_names,
+        'SM_names': SM_names,
+        'static_gen_names': static_gen_names,
+        'bus_names': bus_names,
+        'input_loads': input_loads,
+        'input_names': list(input_rows),
+        'Htot_SM': Htot_SM,
+        'Etot_SM': Etot_SM,
+        'Mtot_SM': Mtot_SM,
+        'H_SM': H_SM,
+        'S_SM': S_SM,
+        'P_SM': P_SM,
+        'Q_SM': Q_SM,
+        'PF': data['PF_without_slack'],
+        'bus_equiv_terms': data['bus_equiv_terms'],
+        'mu': mu,
+        'c': c,
+        'alpha': alpha,
+        'dP': dP,
+        'sigmaP': sigmaP,
+        'ref_SM_name': ref_SM_name,
+        'data_file': data_file,
+        'with_additional_TFs': compute_additional_TFs,
+        'vars_idx': vars_idx,
+    }
     if 'Ssg' in data:
         out['S_SG'] = data['Ssg'].item()
     if 'DSL_params' in data:
