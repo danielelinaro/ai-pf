@@ -93,11 +93,11 @@ if __name__ == '__main__':
         i += 1
 
     if outfile.exists() and not force:
-        print(f'{progname}: output file {outfile} exists: use -f to overwrite.', file=sys.stderr)
+        print(f"{progname}: output file '{outfile}' exists: use -f to overwrite.", file=sys.stderr)
         sys.exit(1)
 
     if not outfile.parent.exists():
-        print(f'{progname}: {outfile.parent} does not exist', file=sys.stderr)
+        print(f"{progname}: output directory '{outfile.parent}' does not exist", file=sys.stderr)
         sys.exit(1)
 
     if i == N_args:
