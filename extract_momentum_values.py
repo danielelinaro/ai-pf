@@ -5,46 +5,81 @@ Created on Fri Sep 27 16:57:10 2024
 @author: Daniele Linaro
 """
 
-import os
 import re
 import sys
 import json
-import glob
 import numpy as np
+from pathlib import Path
 
 if __name__ == '__main__':
-    
-    base_data_dir = '/dati2tb/daniele/Research/ai-pf/data/Sardinia/SM_configs_from_data'
-    data_dirs = sorted(filter(lambda s: os.path.isdir(s) and \
-                              re.match('^[0-9]+', os.path.basename(s)),
-                              glob.glob(os.path.join(base_data_dir, '*'))))
+
+    progname = Path(sys.argv[0]).name
+    outfile = Path('HEM.npz')
+    force = False
+    i = 1
+    n_args = len(sys.argv)
+    while i < n_args:
+        arg = sys.argv[i]
+        if arg in ('-h', '--help'):
+            print(f'usage: {progname} [-f | --force] [-o | --output <output_file_name>] base_data_dir')
+            sys.exit(0)
+        elif arg in ('-o', '--output'):
+            i += 1
+            outfile = Path(sys.argv[i])
+        elif arg in ('-f', '--force'):
+            force = True
+        elif arg.startswith('-'):
+            print(f"{progname}: unknown option '{arg}'.")
+            sys.exit(0)
+        else:
+            break
+        i += 1
+
+    if i == n_args:
+        print('You must provide the path to a directory.')
+        sys.exit(1)
+
+    if outfile.exists() and not force:
+        print(f'{progname}: {outfile}: file exists, use -f to overwrite.')
+        sys.exit(1)
+
+    base_data_dir = Path(sys.argv[i])
+    if not base_data_dir.is_dir():
+        print(f'{progname}: {base_data_dir}: no such directory.')
+        sys.exit(1)
+
+    data_dirs = sorted(
+        filter(
+            lambda D: D.is_dir() and re.match('^[0-9]+$', D.name) is not None,
+            base_data_dir.glob('*'),
+        ),
+    )
     n_dirs = len(data_dirs)
     print(f'Found {n_dirs} directories containing data.')
 
-    H = -1 + np.zeros(n_dirs)
-    E = -1 + np.zeros(n_dirs)
-    M = -1 + np.zeros(n_dirs)
-    fname = 'V2020_Rete_Sardegna_2021_06_03cr_AC_TF_-6.0_2.0_100.npz'
-    fname = 'V2020_Rete_Sardegna_2021_06_03cr_AC.npz'
-    
-    for i,d in enumerate(data_dirs):
-        data_file = os.path.join(d, fname)
-        if not os.path.isfile(data_file):
-            print(f'Directory {os.path.basename(d)} does not contain file {fname}.')
-            continue
-        data = np.load(data_file, allow_pickle=True)
-        if 'TF' in fname:
-            Si = data['S'] * 1e6
-            Hi = data['H']
-        else:
-            S_dict = data['S'].item()
-            H_dict = data['H'].item()
-            Si = np.array([S_dict[k] for k in S_dict]) * 1e6
-            Hi = np.array([H_dict[k] for k in S_dict])
-        num = Hi @ Si
-        den = Si.sum()
-        H[i] = num/den       # [s]
-        E[i] = num*1e-9      # [GW s]
-        M[i] = 2*num*1e-9/50 # [GW s2]
+    H = np.nan + np.zeros(n_dirs)
+    E = np.nan + np.zeros(n_dirs)
+    M = np.nan + np.zeros(n_dirs)
+    fn = 50. # [Hz] nominal frequency
 
-    np.savez_compressed('HEM.npz', H=H, E=E, M=M)
+    for i, d in enumerate(data_dirs):
+        try:
+            data_file = next(iter(d.glob('*_AC.npz')))
+        except:
+            for subd in d.iterdir():
+                if subd.is_dir():
+                    data_file = next(iter(subd.glob('*_AC.npz')))
+        data = np.load(data_file, allow_pickle=True)
+        Snom = data['Ssm'].item()
+        h = data['Hsm'].item()
+        h = np.array([h[k] for k in Snom])               # [s]
+        Snom = np.array([Snom[k] * 1e-3 for k in Snom])  # [GW]
+        E[i] = h @ Snom
+        H[i] = E[i] / Snom.sum()
+        M[i] = 2 * E[i] / fn
+
+    print('Inertia in range {:g} - {:g} s.'.format(H.min(), H.max()))
+    print('Momentum in range {:g} - {:g} GWs2.'.format(M.min(), M.max()))
+    print('Energy in range {:g} - {:g} GWs.'.format(E.min(), E.max()))
+
+    np.savez_compressed(outfile, H=H, E=E, M=M)
