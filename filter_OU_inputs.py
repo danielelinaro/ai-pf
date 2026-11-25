@@ -214,7 +214,7 @@ if __name__ == '__main__':
             SM_info.update(json.load(fid))
 
     data = np.load(data_file, allow_pickle=True)
-    F = data['F']
+    PF = data['PF'].item()
     # all the variable names in the power network
     all_var_names = data['var_names']
     # the variable names to simulate
@@ -318,10 +318,22 @@ if __name__ == '__main__':
                 alpha[i] = inp['alpha']
             except:
                 alpha[i] = 1 / inp['tau']
-            try:
+            if 'c' in inp:
                 c[i] = inp['c']
-            except:
+            elif 'stddev' in inp:
                 c[i] = inp['stddev'] * np.sqrt(2 * alpha[i])
+            elif 'stddev_percent' in inp:
+                name = re.sub('^[A-Z]+_', '', input_names[i])
+                keys = [_ for _ in PF['loads'] if name in _]
+                if len(keys) == 0:
+                    print(f"No load matches '{name}' at power flow.")
+                    sys.exit(1)
+                if len(keys) > 1:
+                    print(f"More than one load matches '{name}' at power flow.")
+                    sys.exit(1)
+                sigma = inp['stddev_percent'] / 100 * PF['loads'][keys[0]]['P']
+                print("Standard deviation for input '{}': {:.2f} MW".format(inp['name'], sigma))
+                c[i] = sigma * np.sqrt(2 * alpha[i])
             if 'seed' in inp:
                 OU_seeds[i] = inp['seed']
 
@@ -332,6 +344,7 @@ if __name__ == '__main__':
             
     print('(Vector) fitting the TFs...')
     J, K = np.ix_(inputs_idx, vars_idx)
+    F = data['F']
     TF = data['TF'][:, J, K]
     systems, fit = fit_TF(F, TF, iter_fun=iter_fun)
 
@@ -354,7 +367,6 @@ if __name__ == '__main__':
     _, P_U = welch(U - U.mean(), **kwargs)
     abs_Y, abs_U = np.sqrt(P_Y), np.sqrt(P_U)
 
-    PF = data['PF'].item()
     F0 = 50.
     if 'OUT' in data:
         print('Combining the output spectra...')

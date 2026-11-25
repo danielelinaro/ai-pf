@@ -1,0 +1,39 @@
+{
+    "data_file": "data/Sardinia/SM_configs_from_data/stoch_loads_no_GFM/001/Sardegna_stoch_loads_no_GFM_TF_-6.0_2.0_50.npz",
+    "input_loads": [
+	{
+	    "name": "BUF_MIMC_I2201TR1",
+	    "stddev_percent": 5,
+	    "tau": 20e-3
+	},
+	{
+	    "name": "BUF_MIMC_I2201TR2",
+	    "stddev_percent": 5,
+	    "tau": 20e-3
+	},
+	{
+	    "name": "BUF_ALIC_I1501TR1",
+	    "stddev_percent": 5,
+	    "tau": 20e-3
+	},
+	{
+	    "name": "BUF_ALIC_I1501TR2",
+	    "stddev_percent": 5,
+	    "tau": 20e-3
+	},
+	{
+	    "name": "BUF_CA4CDI1501TRV",
+	    "stddev_percent": 5,
+	    "tau": 20e-3
+	},
+	{
+	    "name": "BUF_SGLCDI1501TRV",
+	    "stddev_percent": 5,
+	    "tau": 20e-3
+	}
+    ],
+    "vars_to_save": "var_names_41920.json",
+    "tend": 300,
+    "dt": 5e-3,
+    "block_dur": 60
+}

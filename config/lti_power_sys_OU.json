@@ -1,0 +1,18 @@
+{
+    "data_dir": "data/Sardinia/SM_configs_from_data/multiple_GFM_stoch_loads_no_multitone/GFM_01/001/Ta_40",
+    "inputs": [
+	{
+	    "site": "MIMC_I",
+	    "substation": "MIMC_I2201________SUBNET__",
+	    "dsl_name": "BUF_MIMC_I2201TR1",
+	    "var_name": "Pext",
+	    "waveform": "lambda t: OU(t[1] - t[0], 0, 43.9 * 2 / 100, 20e-3 / (2 * math.pi), len(t), 1)"
+	}
+    ],
+    "vars_to_save": {
+	".*FSACTI0202GGR4____GEN_____\\.ElmSym$": ["speed"],
+	".*ASSCPI1501A1______BUS_____\\.ElmTerm$": ["ur", "ui"]
+    },
+    "tend": 10800,
+    "dt": 5e-3
+}
