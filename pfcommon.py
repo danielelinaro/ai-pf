@@ -6,15 +6,41 @@ import numpy as np
 from numpy.random import RandomState, SeedSequence, MT19937
 
 
-__all__ = ['BaseParameters', 'terminal_site_name', 'SiteNode', 'LineSitesEdge',
-           'get_simulation_variables', 'get_simulation_time', 'get_simulation_dt',
-           'get_ID', 'get_line_bus_IDs', 'normalize', 'OU', 'OU_2', 'OU_signal','run_power_flow',
-           'print_power_flow', 'correct_traces', 'find_element_by_name',
-           'is_voltage', 'is_power', 'is_frequency', 'is_current', 
-           'compute_generator_inertias', 'sort_objects_by_name', 'get_objects',
-           'make_full_object_name', 'build_network_graph', 'Node', 'Edge',
-           'parse_sparse_matrix_file', 'parse_Amat_vars_file', 'parse_Jacobian_vars_file',
-           'combine_output_spectra', 'activate_project', 'print_network_info']
+__all__ = [
+    'BaseParameters',
+    'terminal_site_name',
+    'SiteNode',
+    'LineSitesEdge',
+    'Node',
+    'Edge',
+    'get_simulation_variables',
+    'get_simulation_time',
+    'get_simulation_dt',
+    'get_ID',
+    'get_line_bus_IDs',
+    'normalize',
+    'OU',
+    'OU_2',
+    'run_power_flow',
+    'print_power_flow',
+    'correct_traces',
+    'find_element_by_name',
+    'is_voltage',
+    'is_power',
+    'is_frequency',
+    'is_current',
+    'compute_generator_inertias',
+    'sort_objects_by_name',
+    'get_objects',
+    'make_full_object_name',
+    'build_network_graph',
+    'parse_sparse_matrix_file',
+    'parse_Amat_vars_file',
+    'parse_Jacobian_vars_file',
+    'combine_output_spectra',
+    'activate_project',
+    'print_network_info',
+]
 
 
 class BaseParameters (tables.IsDescription):
@@ -423,7 +449,8 @@ def OU(dt, mean, stddev, tau, N, random_state = None):
     mu = np.exp(-dt / tau)
     coeff = stddev * np.sqrt(1 - mu**2)
     if random_state is not None:
-        rs = _random_state_from_seed(random_state) if isinstance(random_state, int) else random_state
+        import numbers
+        rs = _random_state_from_seed(random_state) if isinstance(random_state, numbers.Integral) else random_state
         rnd = rs.normal(size=N)
     else:
         rnd = np.random.normal(size=N)
@@ -431,34 +458,6 @@ def OU(dt, mean, stddev, tau, N, random_state = None):
     ou[0] = mean
     for i in range(1, N):
         ou[i] = mean + mu * (ou[i-1] - mean) + coeff * rnd[i]
-    return ou
-
-
-def OU_signal(t, dt, mean, stddev, tau, tau_ref=None, seed=1):
-    """
-    Generate an Ornstein-Uhlenbeck process matching MATLAB's rng(seed, 'twister').
-    """
-    t = np.asarray(t)
-    N = t.size
-    
-
-    if tau_ref is not None:
-        stddev_eff = stddev * np.sqrt(tau_ref / tau)
-    else:
-        stddev_eff = stddev
-
-    mu = np.exp(-dt / (tau/(2*np.pi)))  #division of tau by 2pi ensures right cutoff freq.
-    c = stddev_eff * np.sqrt(1.0 - mu**2)
-
-    prng = np.random.RandomState(seed)
-    r = prng.randn(N)
-
-    ou = np.zeros(N, dtype=float)
-    ou[0] = mean
-
-    for i in range(1, N):
-        ou[i] = mean + mu * (ou[i - 1] - mean) + c * r[i]
-
     return ou
 
 
@@ -491,7 +490,8 @@ def OU_2(dt, alpha, mu, c, N, random_state = None):
     """
     coeff = np.array([alpha * mu * dt, 1 / (1 + alpha * dt)])
     if random_state is not None:
-        rs = _random_state_from_seed(random_state) if isinstance(random_state, int) else random_state
+        import numbers
+        rs = _random_state_from_seed(random_state) if isinstance(random_state, numbers.Integral) else random_state
         rnd = c * np.sqrt(dt) * rs.normal(size=N)
     else:
         rnd = c * np.sqrt(dt) * np.random.normal(size=N)
