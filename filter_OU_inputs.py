@@ -209,6 +209,7 @@ if __name__ == '__main__':
 
     SM_info = {}
     for f in progdir.glob('*_SM_info.json'):
+        print(f"Loading SM information from file '{f}'.")
         with open(f) as fid:
             SM_info.update(json.load(fid))
 

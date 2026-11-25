@@ -1,5 +1,5 @@
 {
-    "var_names": [
+    "vars_to_save": [
         "Grid-NARCDI-NARCDI1501________SUBNET__-NARCDI1501A5______BUS_____.ElmTerm.ur",
         "Grid-BDNC_I-BDNC_I1501________SUBNET__-BDNC_I1501A2______BUS_____.ElmTerm.ur",
         "Grid-ALHCDI-ALHCDI1501________SUBNET__-ALHCDI1501A2______BUS_____.ElmTerm.ur",
