@@ -1,3 +1,5 @@
+*.m
+SM_with_load
 *~
 *.o
 data
