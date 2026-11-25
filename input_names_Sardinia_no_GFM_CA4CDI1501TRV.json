@@ -1,0 +1,10 @@
+[
+    {
+	"site_name": "CA4CDI",
+	"substation_name": "CA4CDI1501________SUBNET__",
+	"device_name": "pq_buffer",
+	"device_type": "ElmDsl",
+	"var_name": "Pext"
+    }
+]
+

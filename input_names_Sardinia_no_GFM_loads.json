@@ -1,0 +1,45 @@
+[
+    {
+	"site_name": "MIMC_I",
+	"substation_name": "MIMC_I2201________SUBNET__",
+	"device_name": "BUF_MIMC_I2201TR1",
+	"device_type": "ElmDsl",
+	"var_name": "Pext"
+    },
+    {
+	"site_name": "MIMC_I",
+	"substation_name": "MIMC_I2201________SUBNET__",
+	"device_name": "BUF_MIMC_I2201TR2",
+	"device_type": "ElmDsl",
+	"var_name": "Pext"
+    },
+    {
+	"site_name": "ALIC_I",
+	"substation_name": "ALIC_I1501________SUBNET__",
+	"device_name": "BUF_ALIC_I1501TR1",
+	"device_type": "ElmDsl",
+	"var_name": "Pext"
+    },
+    {
+	"site_name": "ALIC_I",
+	"substation_name": "ALIC_I1501________SUBNET__",
+	"device_name": "BUF_ALIC_I1501TR2",
+	"device_type": "ElmDsl",
+	"var_name": "Pext"
+    },
+    {
+	"site_name": "CA4CDI",
+	"substation_name": "CA4CDI1501________SUBNET__",
+	"device_name": "BUF_CA4CDI1501TRV",
+	"device_type": "ElmDsl",
+	"var_name": "Pext"
+    },
+    {
+	"site_name": "SGLCDI",
+	"substation_name": "SGLCDI1501________SUBNET__",
+	"device_name": "BUF_SGLCDI1501TRV",
+	"device_type": "ElmDsl",
+	"var_name": "Pext"
+    }
+]
+

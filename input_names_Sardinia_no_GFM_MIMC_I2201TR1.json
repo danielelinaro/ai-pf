@@ -1,0 +1,10 @@
+[
+    {
+	"site_name": "MIMC_I",
+	"substation_name": "MIMC_I2201________SUBNET__",
+	"device_name": "pq_buffer_electrimacs",
+	"device_type": "ElmDsl",
+	"var_name": "Pext"
+    }
+]
+

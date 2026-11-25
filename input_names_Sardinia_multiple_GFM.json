@@ -1,0 +1,12 @@
+[
+    {
+	"site_name": "OTTCTI",
+	"substation_name": "OTTCTI2201________SUBNET__",
+	"device_name": "pref_buffer_01",
+	"block_name": "GFM_01",
+	"device_type": "ElmDsl",
+	"var_name": "pref_out",
+	"loc_name": "Genstat_01"
+    }
+]
+
