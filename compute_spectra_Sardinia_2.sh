@@ -1,15 +1,16 @@
 #!/bin/bash
 
-datadir="/Users/daniele/Research/ai-pf/data/Sardinia/SM_configs_from_data/stoch_loads_no_GFM"
+export OPENBLAS_NUM_THREADS=4
+datadir="/dati2tb/daniele/Research/ai-pf/data/Sardinia/SM_configs_from_data/stoch_loads_no_GFM"
 datafile="Sardegna_stoch_loads_no_GFM_AC.npz"
 inputs="input_names_Sardinia_no_GFM_loads.json"
 varnames="vars_to_save_Sardinia_small.txt"
 N=50
 fmin=-6.0
 fmax=2.0
-force=0
+force=1
 cores=0
-maxcores=8
+maxcores=40
 for d in $datadir/* ; do
     if [ ! -f ${d}/UNIQUE_SM_CONFIG ] ; then
 	continue

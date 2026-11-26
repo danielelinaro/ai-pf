@@ -17,7 +17,7 @@ else
 fi
 outfile="${datadir}/${datafile%.npz}_TF_${fmin}.0_${fmax}.0_${N}_${dP}_${suffix}.npz"
 
-#python3 compute_spectra.py -N $N --fmin $fmin --fmax $fmax -o $outfile --dP $dP -L $loadsfile $infile
+python3 compute_spectra.py -N $N --fmin $fmin --fmax $fmax -o $outfile --dP $dP -L $loadsfile $infile
 
 infile=$outfile
 outfile="${datadir}/${datafile%_AC.npz}_ss_${dP}_${suffix}.h5"
