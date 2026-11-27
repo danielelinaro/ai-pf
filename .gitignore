@@ -1,3 +1,6 @@
+sync_data
+sync_experiments
+unused
 *.m
 SM_with_load
 *~

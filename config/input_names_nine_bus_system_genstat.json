@@ -1,0 +1,9 @@
+[
+    {
+	"device_name": "pref_buffer_01",
+	"device_type": "ElmDsl",
+	"block_name": "GFM_01",
+	"var_name": "pref_out"
+    }
+]
+
